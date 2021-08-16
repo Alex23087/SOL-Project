@@ -3,5 +3,6 @@
 
 #define true 1
 #define false 0
+#define bool short
 
 #endif //SOL_PROJECT_DEFINES_H

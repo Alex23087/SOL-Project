@@ -8,6 +8,16 @@
 
 #define MAX_LINE_BUFFER 100
 
+bool strIsWhitespace(const char* in){
+	size_t len = strlen(in);
+	for(size_t i = 0; i < len; i++){
+		if(!isspace(in[i])){
+			return false;
+		}
+	}
+	return true;
+}
+
 ArgsList* initArgsListNode(){
     ArgsList* out = malloc(sizeof(ArgsList));
     out->type = Long;
@@ -79,7 +89,7 @@ ArgsList* argsListNodeFromString(const char* input){
 			*(long*)value = strtol(&input[i], NULL, 10);
 			if(errno != 0){
 				//TODO: Handle error
-				perror("Invalid int format in input\n");
+				perror("Invalid long format in input\n");
 			}
 #ifdef DEBUG
 			printf("value: %ld\n", *(long*)value);
@@ -94,11 +104,11 @@ ArgsList* argsListNodeFromString(const char* input){
 }
 
 ArgsList* readConfigFile(const char* filename){
-    FILE* file = fopen(filename, "rb");
     ArgsList* head = NULL;
 
     char* buffer = malloc(MAX_LINE_BUFFER);
 
+    FILE* file = fopen(filename, "rb");
     if(file){
         while(true){
             if(fgets(buffer, MAX_LINE_BUFFER, file) == NULL){
@@ -109,24 +119,24 @@ ArgsList* readConfigFile(const char* filename){
                 	//TODO: Handle error
                 }
             }else{
-                if(buffer){
-                	if(head == NULL){
-                		head = argsListNodeFromString(buffer);
-                	}else{
-                		ArgsList* newHead = argsListNodeFromString(buffer);
-                		newHead->next = head;
-                		head = newHead;
-                	}
-#ifdef DEBUG
-                    printf("%s", buffer);
-#endif
+            	if(strIsWhitespace(buffer)){
+            		continue;
+            	}
+                if(head == NULL){
+                    head = argsListNodeFromString(buffer);
                 }else{
-                    //TODO: Handle error
+                    ArgsList* newHead = argsListNodeFromString(buffer);
+                    newHead->next = head;
+                    head = newHead;
                 }
+#ifdef DEBUG
+                printf("%s", buffer);
+#endif
             }
         }
     }else{
         //TODO: Handle error
+	    perror("File couldn't be read");
     }
     
     free(buffer);
@@ -143,7 +153,6 @@ void freeArgsListNode(ArgsList* node){
 	free(node);
 	node = NULL;
 }
-
 
 ArgsList* getNodeForKey(ArgsList* list, const char* key){
 	ArgsList* current = list;
@@ -170,5 +179,9 @@ char* getStringValue(ArgsList* list, const char* key){
 		fprintf(stderr, "Error while getting string value for key: %s\n", key);
 		exit(1);
 	}
-	return (char*)node->data;
+	
+	//Returns a copy of the string, so that the list node can be safely deallocated without destroying the string value
+	char* out = malloc(sizeof(char) * strlen((char*)(node->data)) + 1);
+	strcpy(out, (char*)(node->data));
+	return out;
 }

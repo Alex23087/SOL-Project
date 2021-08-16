@@ -1,0 +1,6 @@
+nWorkers=10
+maxFiles=100
+storageSize=1073741824
+socketPath="/tmp/LSOfilestorage.sk"
+logFile="/tmp/LSOfilestorage.log"
+
