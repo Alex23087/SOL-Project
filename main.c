@@ -15,7 +15,7 @@ int main() {
 	freeArgsListNode(args);
     */
     if(fork()){
-    	sleep(5);
+    	sleep(1);
     	const int len = 2;
     	char* argv[len];
     	argv[0] = "server";

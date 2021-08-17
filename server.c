@@ -6,6 +6,7 @@
 #include <sys/un.h>
 #include "defines.h"
 #include "ParseUtils.h"
+#include "ion.h"
 
 #define MAX_BACKLOG 10
 #define cleanup() \
@@ -17,6 +18,18 @@ static inline void addToFdSetUpdatingMax(int fd, fd_set* fdSet, int* maxFd){
 	FD_SET(fd, fdSet);
 	if(fd > *maxFd){
 		*maxFd = fd;
+	}
+}
+
+static inline void removeFromFdSetUpdatingMax(int fd, fd_set* fdSet, int* maxFd){
+	FD_CLR(fd, fdSet);
+	if(fd == *maxFd){
+		for(int newMax = *maxFd - 1; newMax >= -1; newMax--){
+			if(newMax == -1 || FD_ISSET(newMax, fdSet)){
+				*maxFd = newMax;
+				return;
+			}
+		}
 	}
 }
 
@@ -121,9 +134,9 @@ int serverMain(int argc, char** argv){
 	while(true){
 		tempFdSet = selectFdSet;
 		if(select(maxFd + 1, &tempFdSet, NULL, NULL, &tv) != -1){
-			for(size_t i = 0; i <= maxFd; i ++){
-				if(FD_ISSET(i, &tempFdSet)){
-					if(i == serverSocketDescriptor){
+			for(int currentFd = 0; currentFd <= maxFd; currentFd ++){
+				if(FD_ISSET(currentFd, &tempFdSet)){
+					if(currentFd == serverSocketDescriptor){
 						//New connection received, add client descriptor to set
 						int newClientDescriptor = accept(serverSocketDescriptor, NULL, NULL);
 						if(newClientDescriptor < 0){
@@ -136,10 +149,24 @@ int serverMain(int argc, char** argv){
 #endif
 						addToFdSetUpdatingMax(newClientDescriptor, &selectFdSet, &maxFd);
 						
-					}else if(i == w2mPipeDescriptor){
+					}else if(currentFd == w2mPipeDescriptor){
 						//TODO: Message received from worker, add back client descriptor to set
 					}else{
 						//TODO: Data received from already connected client, remove client descriptor from set and pass message to worker
+						
+						//Client disconnection code
+						char buffer[512];
+						ssize_t bytesRead = readn(currentFd, &buffer, 512);
+						if(bytesRead == 0){
+							if(close(currentFd)){
+								//TODO: Handle error
+							}else{
+#ifdef DEBUG
+								printf("Connection with client on file descriptor %d has been closed\n", currentFd);
+#endif
+								removeFromFdSetUpdatingMax(currentFd, &selectFdSet, &maxFd);
+							}
+						}
 					}
 				}
 			}
@@ -147,7 +174,6 @@ int serverMain(int argc, char** argv){
 			//TODO: Handle error
 			perror("Error during select()");
 		}
-		break;
 	}
 	
 	

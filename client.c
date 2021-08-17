@@ -108,10 +108,11 @@ int clientMain(int argc, char** argv){
 	}
 	
 	struct timespec ts;
-	ts.tv_sec = 6;
+	ts.tv_sec = 2;
 	ts.tv_nsec = 0;
 	
-	openConnection(socketPath, 1500, ts);
+	openConnection(socketPath, 400, ts);
+	closeConnection(socketPath);
 	
 	return 0;
 }

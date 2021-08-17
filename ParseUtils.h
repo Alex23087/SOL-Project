@@ -15,6 +15,8 @@ typedef struct ArgsList{
     struct ArgsList* next;
 } ArgsList;
 
+ArgsList* initArgsListNode();
+
 ArgsList* readConfigFile(const char* filename);
 
 void freeArgsListNode(ArgsList* node);
