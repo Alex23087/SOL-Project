@@ -6,7 +6,11 @@
 #include "ClientAPI.h"
 #include "defines.h"
 
+#ifdef IDE
 int clientMain(int argc, char** argv){
+#else
+	int main(int argc, char** argv){
+#endif
 	char opt;
 	opterr = 0;
 	bool finished = false;
@@ -112,6 +116,7 @@ int clientMain(int argc, char** argv){
 	ts.tv_nsec = 0;
 	
 	openConnection(socketPath, 400, ts);
+	sleep(3);
 	closeConnection(socketPath);
 	
 	return 0;
