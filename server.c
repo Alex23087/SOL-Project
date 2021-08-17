@@ -10,6 +10,7 @@
 #include "defines.h"
 #include "ParseUtils.h"
 #include "ion.h"
+#include "queue.h"
 
 #define MAX_BACKLOG 10
 #define W2M_MESSAGE_LENGTH 5
@@ -22,7 +23,13 @@
 	free(socketPath);\
 	free(logFilePath);
 
-int w2mPipeDescriptors[2];
+
+static int w2mPipeDescriptors[2];
+static Queue* incomingConnectionsQueue = NULL;
+static pthread_mutex_t incomingConnectionsLock = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t incomingConnectionsCond = PTHREAD_COND_INITIALIZER;
+static bool workersShouldTerminate = false;
+
 
 static inline void addToFdSetUpdatingMax(int fd, fd_set* fdSet, int* maxFd){
 	FD_SET(fd, fdSet);
@@ -67,6 +74,47 @@ static inline char* makeW2MMessage(char message, int32_t data, char out[W2M_MESS
 	return out;
 }
 
+static inline void pthread_mutex_lock_error(pthread_mutex_t* lock, const char* msg){
+	if(pthread_mutex_lock(lock)){
+		perror(msg);
+		//TODO: Handle error, maybe send message to master
+	}
+}
+
+static inline void pthread_mutex_unlock_error(pthread_mutex_t* lock, const char* msg){
+	if(pthread_mutex_unlock(lock)){
+		perror(msg);
+		//TODO: Handle error, maybe send message to master
+	}
+}
+
+static inline void pthread_cond_signal_error(pthread_cond_t* cond, const char* msg){
+	if(pthread_cond_signal(cond)){
+		perror(msg);
+		//TODO: Handle error, maybe send message to master
+	}
+}
+
+static inline void pthread_cond_wait_error(pthread_cond_t* cond, pthread_mutex_t* lock, const char* msg){
+	if(pthread_cond_wait(cond, lock)){
+		perror(msg);
+		//TODO: Handle error, maybe send message to master
+	}
+}
+
+static inline void pthread_cond_broadcast_error(pthread_cond_t* cond, const char* msg){
+	if(pthread_cond_broadcast(cond)){
+		perror(msg);
+		//TODO: Handle error
+	}
+}
+
+static inline void pthread_join_error(pthread_t thread, const char* msg){
+	if(pthread_join(thread, NULL)){
+		perror(msg);
+	}
+}
+
 void* signalHandlerThread(void* arg){
 	//Masking the signals we'll listen to
 	sigset_t listenSet;
@@ -85,16 +133,59 @@ void* signalHandlerThread(void* arg){
 	char messageBuffer[W2M_MESSAGE_LENGTH];
 	switch(signalReceived){
 		case SIGINT: case SIGQUIT: default:{
+			printf("[Signal]: Received signal %s\n", signalReceived == SIGINT ? "SIGINT" : "SIGQUIT");
 			writen(w2mPipeDescriptors[1], makeW2MMessage(W2M_SIGNAL_TERM, 0, messageBuffer), W2M_MESSAGE_LENGTH);
 			break;
 		}
 		case SIGHUP:{
+			printf("[Signal]: Received signal SIGHUP\n");
 			writen(w2mPipeDescriptors[1], makeW2MMessage(W2M_SIGNAL_HANG, 0, messageBuffer), W2M_MESSAGE_LENGTH);
 			break;
 		}
 	}
 	
 	return 0;
+}
+
+void* workerThread(void* arg){
+	printf("[Worker #%d]: Up and running\n", (int)arg);
+	while(!workersShouldTerminate){
+		//Wait for connection to serve
+		pthread_mutex_lock_error(&incomingConnectionsLock, "Error while locking on incoming connection from worker");
+		while(queueIsEmpty(incomingConnectionsQueue) && !workersShouldTerminate){
+			pthread_cond_wait_error(&incomingConnectionsCond, &incomingConnectionsLock, "Error while waiting on incoming connection condition variable from worker thread");
+		}
+		int fdToServe;
+		if(!workersShouldTerminate){
+			fdToServe = queuePop(&incomingConnectionsQueue);
+		}
+		pthread_mutex_unlock_error(&incomingConnectionsLock, "Error while unlocking on incoming connection from worker");
+		if(workersShouldTerminate){
+			break;
+		}
+		
+		//Serve connection
+		printf("[Worker #%d]: Serving client on descriptor %d\n", (int)arg, fdToServe);
+		char buffer[512];
+		ssize_t bytesRead = readn(fdToServe, &buffer, 512);
+		
+		if(bytesRead == 0){
+			//Client disconnected
+			if(close(fdToServe)){
+				//TODO: Handle error
+			}else{
+#ifdef DEBUG
+				printf("[Worker #%d]: Connection with client on file descriptor %d has been closed\n", (int)arg, fdToServe);
+#endif
+				//TODO: Warn the master thread
+			}
+		}else{
+			//TODO: Handle connection
+		}
+	}
+	
+	printf("[Worker %d]: Terminating\n", (int)arg);
+	return (void*)0;
 }
 
 #ifdef IDE
@@ -199,7 +290,14 @@ int main(int argc, char** argv){
 	pthread_sigmask(SIG_SETMASK, &signalMask, NULL);
 	
 	
-	//TODO: Spawn worker threads
+	//Spawn worker threads
+	pthread_t workers[nWorkers];
+	for(size_t i = 0; i < nWorkers; i++){
+		if(pthread_create(&(workers[i]), NULL, workerThread, (void*)i)){
+			perror("Error while creating worker thread");
+			return -1;
+		}
+	}
 	
 	
 	//Main loop
@@ -230,7 +328,7 @@ int main(int argc, char** argv){
 							return -1;
 						}
 #ifdef DEBUG
-						printf("Incoming connection received, client descriptor: %d\n", newClientDescriptor);
+						printf("[Master]: Incoming connection received, client descriptor: %d\n", newClientDescriptor);
 #endif
 						addToFdSetUpdatingMax(newClientDescriptor, &selectFdSet, &maxFd);
 						
@@ -253,16 +351,22 @@ int main(int argc, char** argv){
 								//Stop listening to incoming connections, close all connections, terminate
 								FD_ZERO(&selectFdSet);
 #ifdef DEBUG
-								printf("Received termination signal\n");
+								printf("[Master]: Received termination signal\n");
 #endif
 								running = false;
+								workersShouldTerminate = true;
+								
+								pthread_mutex_lock_error(&incomingConnectionsLock, "Error while locking incoming connections");
+								pthread_cond_broadcast_error(&incomingConnectionsCond, "Error while broadcasting stop message");
+								pthread_mutex_unlock_error(&incomingConnectionsLock, "Error while unlocking incoming connections");
+								
 								break;
 							}
 							case W2M_SIGNAL_HANG:{
 								//Stop listening to incoming connections, serve all requests, terminate
-								FD_CLR(serverSocketDescriptor, &selectFdSet);
+								removeFromFdSetUpdatingMax(serverSocketDescriptor, &selectFdSet, &maxFd);
 #ifdef DEBUG
-								printf("Received hangup signal\n");
+								printf("[Master]: Received hangup signal\n");
 #endif
 								running = false;
 								break;
@@ -270,21 +374,14 @@ int main(int argc, char** argv){
 							//TODO: Handle other cases
 						}
 					}else{
-						//TODO: Data received from already connected client, remove client descriptor from set and pass message to worker
+						//Data received from already connected client, remove client descriptor from select set and pass it to worker
 						
-						//Client disconnection code
-						char buffer[512];
-						ssize_t bytesRead = readn(currentFd, &buffer, 512);
-						if(bytesRead == 0){
-							if(close(currentFd)){
-								//TODO: Handle error
-							}else{
-#ifdef DEBUG
-								printf("Connection with client on file descriptor %d has been closed\n", currentFd);
-#endif
-								removeFromFdSetUpdatingMax(currentFd, &selectFdSet, &maxFd);
-							}
-						}
+						removeFromFdSetUpdatingMax(currentFd, &selectFdSet, &maxFd);
+						
+						pthread_mutex_lock_error(&incomingConnectionsLock, "Error while locking on incoming connections queue");
+						queuePush(&incomingConnectionsQueue, currentFd);
+						pthread_cond_signal_error(&incomingConnectionsCond, "Error while signaling incoming connection");
+						pthread_mutex_unlock_error(&incomingConnectionsLock, "Error while locking on incoming connections queue");
 					}
 				}
 			}
@@ -294,6 +391,23 @@ int main(int argc, char** argv){
 		}
 	}
 	
+	
+	//Cleanup
+	
+	//It's safe to join on the signal handler, as the only way to terminate the server is for a signal to happen
+	//and in that case the signal handler terminates
+	pthread_join_error(signalHandlerThreadID, "Error while joining on signal handler thread");
+	for(size_t i = 0; i < nWorkers; i++){
+		pthread_join_error(workers[i], "Error while joining worker thread");
+	}
+	
+	
+	if(close(w2mPipeDescriptors[0])){
+		perror("Error while closing w2m pipe read endpoint");
+	}
+	if(close(w2mPipeDescriptors[1])){
+		perror("Error while closing w2m pipe write endpoint");
+	}
 	
 	cleanup();
 	return 0;

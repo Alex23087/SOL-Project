@@ -36,8 +36,6 @@ int openConnection(const char* sockname, int msec, const struct timespec abstime
 	struct timespec currentTime;
 	clock_gettime(CLOCK_REALTIME, &currentTime);
 	
-	printf("%d %d %d\n", compareTimes(abstime, currentTime), compareTimes(currentTime, abstime), compareTimes(currentTime, currentTime));
-	
 	struct timespec deadlineTime = addTimes(currentTime, abstime);
 	struct timespec endTime = addTimes(currentTime, doubleToTimespec(msec * 1e-3));
 	
@@ -45,7 +43,6 @@ int openConnection(const char* sockname, int msec, const struct timespec abstime
 	do{
 		connectionSucceeded = !connect(clientSocketDescriptor, (struct sockaddr*)&serverAddress, sizeof(serverAddress));
 		if(!connectionSucceeded){
-			printf("%d\n", errno);
 			perror("Error while connecting to socket");
 			if(compareTimes(deadlineTime, endTime) >= 0){
 				usleep(msec * 1e3L);

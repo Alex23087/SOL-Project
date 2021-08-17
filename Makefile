@@ -1,12 +1,12 @@
 CC = gcc
 override CFLAGS += -Wall -pedantic
 
-server: server.o defines.h ParseUtils.o ion.o
+server: server.o ParseUtils.o ion.o queue.o
 	$(CC) $(CFLAGS) -pthread $^ -o $@
 
 server.o: server.c server.h
 
-client: client.o ClientAPI.o timespecUtils.o ParseUtils.o defines.h
+client: client.o ClientAPI.o timespecUtils.o ParseUtils.o
 	$(CC) $(CFLAGS) $^ -o $@
 
 client.o: client.c client.h
@@ -19,7 +19,12 @@ ParseUtils.o: ParseUtils.c ParseUtils.h
 
 ion.o: ion.c ion.h
 
-.PHONY: clean
+queue.o: queue.c queue.h
+
+.PHONY: clean cleanall
+
+cleanall: clean
+	rm server client
 
 clean:
-	rm server client *.o
+	rm *.o
