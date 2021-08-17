@@ -2,9 +2,8 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <errno.h>
-#include <sys/socket.h>
-#include <sys/un.h>
 
+#include "ClientAPI.h"
 #include "defines.h"
 
 int clientMain(int argc, char** argv){
@@ -108,24 +107,11 @@ int clientMain(int argc, char** argv){
 		return -1;
 	}
 	
+	struct timespec ts;
+	ts.tv_sec = 6;
+	ts.tv_nsec = 0;
 	
-	//Connect to server
-	int clientSocketDescriptor = -1;
-	struct sockaddr_un serverAddress;
-	memset(&serverAddress, 0, sizeof(serverAddress));
-	serverAddress.sun_family = AF_UNIX;
-	strncpy(serverAddress.sun_path, socketPath, strlen(socketPath) + 1);
-	
-	clientSocketDescriptor = socket(AF_UNIX, SOCK_STREAM, 0);
-	if(clientSocketDescriptor < 0){
-		perror("Error while creating socket");
-		return -1;
-	}
-	
-	while(connect(clientSocketDescriptor, (struct sockaddr*)&serverAddress, sizeof(serverAddress))){
-		perror("Error while connecting to socket");
-		sleep(1);
-	}
+	openConnection(socketPath, 1500, ts);
 	
 	return 0;
 }

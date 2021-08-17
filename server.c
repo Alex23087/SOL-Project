@@ -13,6 +13,13 @@
 	free(socketPath);\
 	free(logFilePath);
 
+static inline void addToFdSetUpdatingMax(int fd, fd_set* fdSet, int* maxFd){
+	FD_SET(fd, fdSet);
+	if(fd > *maxFd){
+		*maxFd = fd;
+	}
+}
+
 int serverMain(int argc, char** argv){
 	char* configFilePath = "/mnt/e/Progetti/SOL-Project/config.txt";
 	unsigned short nWorkers = 10;
@@ -20,6 +27,7 @@ int serverMain(int argc, char** argv){
 	unsigned long storageSize = 1024 * 1024 * 1024;
 	char* socketPath = NULL;
 	char* logFilePath = NULL;
+	
 	
 	//Command line options parsing
 	char opt;
@@ -64,7 +72,7 @@ int serverMain(int argc, char** argv){
 	freeArgsListNode(configArgs);
 	
 	
-	//Creating socket
+	//Creating server listen socket
 	int serverSocketDescriptor = -1;
 	struct sockaddr_un serverAddress;
 	memset(&serverAddress, 0, sizeof(serverAddress));
@@ -90,13 +98,57 @@ int serverMain(int argc, char** argv){
 		return -1;
 	}
 	
-	int clientDescriptor = accept(serverSocketDescriptor, NULL, NULL);
-	if(clientDescriptor < 0){
-		perror("Error while accepting a new connection");
-		cleanup();
-		return -1;
+	
+	//TODO: Init w2m pipe
+	int w2mPipeDescriptor = 0;
+	
+	
+	//TODO: Spawn worker threads
+	
+	
+	//Main loop
+	int maxFd = -1;
+	fd_set selectFdSet;
+	fd_set tempFdSet;
+	FD_ZERO(&selectFdSet);
+	addToFdSetUpdatingMax(serverSocketDescriptor, &selectFdSet, &maxFd);
+	
+	
+	struct timeval tv;
+	tv.tv_sec = 3;
+	tv.tv_usec = 0;
+	
+	while(true){
+		tempFdSet = selectFdSet;
+		if(select(maxFd + 1, &tempFdSet, NULL, NULL, &tv) != -1){
+			for(size_t i = 0; i <= maxFd; i ++){
+				if(FD_ISSET(i, &tempFdSet)){
+					if(i == serverSocketDescriptor){
+						//New connection received, add client descriptor to set
+						int newClientDescriptor = accept(serverSocketDescriptor, NULL, NULL);
+						if(newClientDescriptor < 0){
+							perror("Error while accepting a new connection");
+							cleanup();
+							return -1;
+						}
+#ifdef DEBUG
+						printf("Incoming connection received, client descriptor: %d\n", newClientDescriptor);
+#endif
+						addToFdSetUpdatingMax(newClientDescriptor, &selectFdSet, &maxFd);
+						
+					}else if(i == w2mPipeDescriptor){
+						//TODO: Message received from worker, add back client descriptor to set
+					}else{
+						//TODO: Data received from already connected client, remove client descriptor from set and pass message to worker
+					}
+				}
+			}
+		}else{
+			//TODO: Handle error
+			perror("Error during select()");
+		}
+		break;
 	}
-	printf("Incoming connection received");
 	
 	
 	cleanup();
