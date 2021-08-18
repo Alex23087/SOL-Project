@@ -116,7 +116,11 @@ int clientMain(int argc, char** argv){
 	ts.tv_nsec = 0;
 	
 	openConnection(socketPath, 400, ts);
-	sleep(3);
+	sleep(1);
+	if(issuedWriteOperation){
+		writeFile(NULL, NULL);
+	}
+	sleep(1);
 	closeConnection(socketPath);
 	
 	return 0;

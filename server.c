@@ -11,6 +11,7 @@
 #include "ParseUtils.h"
 #include "ion.h"
 #include "queue.h"
+#include "FileCachingProtocol.h"
 
 #define MAX_BACKLOG 10
 #define W2M_MESSAGE_LENGTH 5
@@ -29,6 +30,7 @@ static Queue* incomingConnectionsQueue = NULL;
 static pthread_mutex_t incomingConnectionsLock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t incomingConnectionsCond = PTHREAD_COND_INITIALIZER;
 static bool workersShouldTerminate = false;
+static ClientList* clientList = NULL;
 
 
 static inline void addToFdSetUpdatingMax(int fd, fd_set* fdSet, int* maxFd){
@@ -115,6 +117,11 @@ static inline void pthread_join_error(pthread_t thread, const char* msg){
 	}
 }
 
+static inline void w2mSend(char message, int32_t data){
+	char buffer[W2M_MESSAGE_LENGTH];
+	writen(w2mPipeDescriptors[1], makeW2MMessage(message, data, buffer), W2M_MESSAGE_LENGTH);
+}
+
 void* signalHandlerThread(void* arg){
 	//Masking the signals we'll listen to
 	sigset_t listenSet;
@@ -130,21 +137,33 @@ void* signalHandlerThread(void* arg){
 		return (void *) -1;
 	}
 	
-	char messageBuffer[W2M_MESSAGE_LENGTH];
 	switch(signalReceived){
 		case SIGINT: case SIGQUIT: default:{
 			printf("[Signal]: Received signal %s\n", signalReceived == SIGINT ? "SIGINT" : "SIGQUIT");
-			writen(w2mPipeDescriptors[1], makeW2MMessage(W2M_SIGNAL_TERM, 0, messageBuffer), W2M_MESSAGE_LENGTH);
+			w2mSend(W2M_SIGNAL_TERM, 0);
 			break;
 		}
 		case SIGHUP:{
 			printf("[Signal]: Received signal SIGHUP\n");
-			writen(w2mPipeDescriptors[1], makeW2MMessage(W2M_SIGNAL_HANG, 0, messageBuffer), W2M_MESSAGE_LENGTH);
+			w2mSend(W2M_SIGNAL_TERM, 0);
 			break;
 		}
 	}
 	
 	return 0;
+}
+
+int workerDisconnectClient(int workerN, int fdToServe){
+	if(close(fdToServe)){
+		return -1;
+	}else{
+#ifdef DEBUG
+		printf("[Worker #%d]: Connection with client on file descriptor %d has been closed\n", workerN, fdToServe);
+#endif
+		//Warn the master thread
+		w2mSend(W2M_CLIENT_DISCONNECTED, fdToServe);
+		return 0;
+	}
 }
 
 void* workerThread(void* arg){
@@ -166,27 +185,61 @@ void* workerThread(void* arg){
 		
 		//Serve connection
 		printf("[Worker #%d]: Serving client on descriptor %d\n", (int)arg, fdToServe);
-		char buffer[512];
-		ssize_t bytesRead = readn(fdToServe, &buffer, 512);
-		
-		if(bytesRead == 0){
-			//Client disconnected
-			if(close(fdToServe)){
-				//TODO: Handle error
-			}else{
-#ifdef DEBUG
-				printf("[Worker #%d]: Connection with client on file descriptor %d has been closed\n", (int)arg, fdToServe);
-#endif
-				//TODO: Warn the master thread
+		ConnectionStatus status = clientListGetStatus(clientList, fdToServe);
+		switch(status.op){
+			case Connected:{
+				char fcpBuffer[FCP_MESSAGE_LENGTH];
+				ssize_t fcpBytesRead = readn(fdToServe, fcpBuffer, FCP_MESSAGE_LENGTH);
+				
+				//TODO: Handle wrong number of bytes read
+				if(fcpBytesRead == 0){
+					//Client disconnected
+					if(workerDisconnectClient((int)arg, fdToServe)){
+						//TODO: Handle error
+					}
+				}else{
+					FCPMessage* fcpMessage = fcpMessageFromBuffer(fcpBuffer);
+					switch(fcpMessage->op){
+						case FCP_WRITE:{
+							//Client has issued a write request: update client status, send ack, warn master
+							printf("[Worker #%d]: Client %d issued op: %d (FCP_WRITE), size: %d, filename: \"%s\"\n", (int)arg, fdToServe, fcpMessage->op, fcpMessage->size, fcpMessage->filename);
+							ConnectionStatus newStatus;
+							newStatus.op = SendingFile;
+							newStatus.data.messageLength = fcpMessage->size;
+							newStatus.data.filename = malloc(FCP_MESSAGE_LENGTH - 5);
+							strncpy(newStatus.data.filename, fcpMessage->filename, FCP_MESSAGE_LENGTH - 5);
+							clientListUpdateStatus(clientList, fdToServe, newStatus);
+							
+							fcpSend(FCP_ACK, 0, NULL, fdToServe);
+							
+							w2mSend(W2M_CLIENT_SERVED, fdToServe);
+							break;
+						}
+						default:{
+							//Client has requested an invalid operation, forcibly disconnect client
+							printf("[Worker #%d]: Client %d has requested an invalid operation with opcode %d\n", (int)arg, fdToServe, fcpMessage->op);
+							workerDisconnectClient((int)arg, fdToServe);
+						}
+					}
+					free(fcpMessage);
+				}
+				break;
 			}
-		}else{
-			//TODO: Handle connection
+			default:{
+				//Invalid status
+				printf("[Worker #%d]: Client %d has sent a message while in an invalid status, disconnecting it\n", (int)arg, fdToServe);
+				workerDisconnectClient((int)arg, fdToServe);
+			}
 		}
 	}
 	
-	printf("[Worker %d]: Terminating\n", (int)arg);
+	printf("[Worker #%d]: Terminating\n", (int)arg);
 	return (void*)0;
 }
+
+int onNewConnectionReceived(int serverSocketDescriptor, fd_set* selectFdSet, int* maxFd);
+int onW2MMessageReceived(int serverSocketDescriptor, fd_set* selectFdSet, int* maxFd, bool* running);
+int onConnectedClientMessage(int currentFd, fd_set* selectFdSet, int* maxFd);
 
 #ifdef IDE
 int serverMain(int argc, char** argv){
@@ -321,73 +374,27 @@ int main(int argc, char** argv){
 				if(FD_ISSET(currentFd, &tempFdSet)){
 					if(currentFd == serverSocketDescriptor){
 						//New connection received, add client descriptor to set
-						int newClientDescriptor = accept(serverSocketDescriptor, NULL, NULL);
-						if(newClientDescriptor < 0){
-							perror("Error while accepting a new connection");
+						if(onNewConnectionReceived(serverSocketDescriptor, &selectFdSet, &maxFd)){
 							cleanup();
 							return -1;
 						}
-#ifdef DEBUG
-						printf("[Master]: Incoming connection received, client descriptor: %d\n", newClientDescriptor);
-#endif
-						addToFdSetUpdatingMax(newClientDescriptor, &selectFdSet, &maxFd);
-						
 					}else if(currentFd == w2mPipeDescriptors[0]){
 						//Message received from worker or signal thread
-						char buffer[W2M_MESSAGE_LENGTH];
-						ssize_t bytesRead = readn(w2mPipeDescriptors[0], &buffer, W2M_MESSAGE_LENGTH);
-						if(bytesRead < W2M_MESSAGE_LENGTH){
-							//TODO: Handle error
-							perror("Invalid message length on worker-to-master pipe");
+						if(onW2MMessageReceived(serverSocketDescriptor, &selectFdSet, &maxFd, &running)){
 							return -1;
-						}
-						switch(buffer[0]){
-							case W2M_CLIENT_SERVED:{
-								//A worker has served the client's request, add back client to the set of fds to listen to
-								addToFdSetUpdatingMax(getIntFromW2MMessage(buffer), &selectFdSet, &maxFd);
-								break;
-							}
-							case W2M_SIGNAL_TERM:{
-								//Stop listening to incoming connections, close all connections, terminate
-								FD_ZERO(&selectFdSet);
-#ifdef DEBUG
-								printf("[Master]: Received termination signal\n");
-#endif
-								running = false;
-								workersShouldTerminate = true;
-								
-								pthread_mutex_lock_error(&incomingConnectionsLock, "Error while locking incoming connections");
-								pthread_cond_broadcast_error(&incomingConnectionsCond, "Error while broadcasting stop message");
-								pthread_mutex_unlock_error(&incomingConnectionsLock, "Error while unlocking incoming connections");
-								
-								break;
-							}
-							case W2M_SIGNAL_HANG:{
-								//Stop listening to incoming connections, serve all requests, terminate
-								removeFromFdSetUpdatingMax(serverSocketDescriptor, &selectFdSet, &maxFd);
-#ifdef DEBUG
-								printf("[Master]: Received hangup signal\n");
-#endif
-								running = false;
-								break;
-							}
-							//TODO: Handle other cases
 						}
 					}else{
 						//Data received from already connected client, remove client descriptor from select set and pass it to worker
-						
-						removeFromFdSetUpdatingMax(currentFd, &selectFdSet, &maxFd);
-						
-						pthread_mutex_lock_error(&incomingConnectionsLock, "Error while locking on incoming connections queue");
-						queuePush(&incomingConnectionsQueue, currentFd);
-						pthread_cond_signal_error(&incomingConnectionsCond, "Error while signaling incoming connection");
-						pthread_mutex_unlock_error(&incomingConnectionsLock, "Error while locking on incoming connections queue");
+						if(onConnectedClientMessage(currentFd, &selectFdSet, &maxFd)){
+							return -1;
+						}
 					}
 				}
 			}
 		}else{
 			//TODO: Handle error
 			perror("Error during select()");
+			break;
 		}
 	}
 	
@@ -410,5 +417,91 @@ int main(int argc, char** argv){
 	}
 	
 	cleanup();
+	return 0;
+}
+
+
+
+int onNewConnectionReceived(int serverSocketDescriptor, fd_set* selectFdSet, int* maxFd){
+	int newClientDescriptor = accept(serverSocketDescriptor, NULL, NULL);
+	if(newClientDescriptor < 0){
+		perror("Error while accepting a new connection");
+		return -1;
+	}
+#ifdef DEBUG
+	printf("[Master]: Incoming connection received, client descriptor: %d\n", newClientDescriptor);
+#endif
+	addToFdSetUpdatingMax(newClientDescriptor, selectFdSet, maxFd);
+	
+	clientListAdd(&clientList, newClientDescriptor);
+#ifdef DEBUG
+	printf("[Master]: Client %d added to list of connected clients\n", newClientDescriptor);
+#endif
+	return 0;
+}
+
+
+int onW2MMessageReceived(int serverSocketDescriptor, fd_set* selectFdSet, int* maxFd, bool* running){
+	char buffer[W2M_MESSAGE_LENGTH];
+	ssize_t bytesRead = readn(w2mPipeDescriptors[0], &buffer, W2M_MESSAGE_LENGTH);
+	if(bytesRead < W2M_MESSAGE_LENGTH){
+		//TODO: Handle error
+		perror("Invalid message length on worker-to-master pipe");
+		return -1;
+	}
+	switch(buffer[0]){
+		case W2M_CLIENT_SERVED:{
+			//A worker has served the client's request, add back client to the set of fds to listen to
+			int clientFd = getIntFromW2MMessage(buffer);
+			printf("[Master]: Client %d has been served, adding it back to select set\n", clientFd);
+			addToFdSetUpdatingMax(clientFd, selectFdSet, maxFd);
+			break;
+		}
+		case W2M_SIGNAL_TERM:{
+			//Stop listening to incoming connections, close all connections, terminate
+			FD_ZERO(selectFdSet);
+#ifdef DEBUG
+			printf("[Master]: Received termination signal\n");
+#endif
+			*running = false;
+			workersShouldTerminate = true;
+			
+			pthread_mutex_lock_error(&incomingConnectionsLock, "Error while locking incoming connections");
+			pthread_cond_broadcast_error(&incomingConnectionsCond, "Error while broadcasting stop message");
+			pthread_mutex_unlock_error(&incomingConnectionsLock, "Error while unlocking incoming connections");
+			
+			break;
+		}
+		case W2M_SIGNAL_HANG:{
+			//Stop listening to incoming connections, serve all requests, terminate
+			removeFromFdSetUpdatingMax(serverSocketDescriptor, selectFdSet, maxFd);
+#ifdef DEBUG
+			printf("[Master]: Received hangup signal\n");
+#endif
+			*running = false;
+			break;
+		}
+		case W2M_CLIENT_DISCONNECTED:{
+			int clientFd = getIntFromW2MMessage(buffer);
+			
+			clientListRemove(&clientList, clientFd);
+#ifdef DEBUG
+			printf("[Master]: Client %d removed from list of connected clients\n",clientFd);
+#endif
+			break;
+		}
+		//TODO: Handle other cases
+	}
+	return 0;
+}
+
+
+int onConnectedClientMessage(int currentFd, fd_set* selectFdSet, int* maxFd){
+	removeFromFdSetUpdatingMax(currentFd, selectFdSet, maxFd);
+	
+	pthread_mutex_lock_error(&incomingConnectionsLock, "Error while locking on incoming connections queue");
+	queuePush(&incomingConnectionsQueue, currentFd);
+	pthread_cond_signal_error(&incomingConnectionsCond, "Error while signaling incoming connection");
+	pthread_mutex_unlock_error(&incomingConnectionsLock, "Error while locking on incoming connections queue");
 	return 0;
 }

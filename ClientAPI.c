@@ -4,15 +4,17 @@
 #include <stdio.h>
 #include <unistd.h>
 #include <time.h>
-#include <malloc.h>
 #include <errno.h>
 
 #include "ClientAPI.h"
 #include "timespecUtils.h"
 #include "ParseUtils.h"
 #include "defines.h"
+#include "FileCachingProtocol.h"
+#include "ion.h"
 
 ArgsList* openConnections = NULL;
+int activeConnectionFD = -1;
 
 int openConnection(const char* sockname, int msec, const struct timespec abstime){
 	if(getNodeForKey(openConnections, sockname) != NULL){
@@ -68,12 +70,13 @@ int openConnection(const char* sockname, int msec, const struct timespec abstime
 		newConnection->data = (void*)((long)clientSocketDescriptor);
 		newConnection->next = openConnections;
 		
+		activeConnectionFD = clientSocketDescriptor;
 		return 0;
 	}else{
 #ifdef DEBUG
 		printf("Connection to server failed\n");
 #endif
-		errno = ENXIO;
+		errno = ENXIO; //ETIMEDOUT maybe?
 		return -1;
 	}
 }
@@ -91,6 +94,28 @@ int closeConnection(const char* sockname){
 			return -1;
 		}else{
 			return 0;
+		}
+	}
+}
+
+int writeFile(const char* pathname, const char* dirname){
+	if(activeConnectionFD == -1){
+		//Function called without an active connection
+		errno = ENOTCONN;
+		return -1;
+	}
+	
+	printf("Sending write request to server\n");
+	fcpSend(FCP_WRITE, 1024, "test", activeConnectionFD);
+	printf("Write request sent\n");
+	
+	char buffer[FCP_MESSAGE_LENGTH];
+	readn(activeConnectionFD, buffer, FCP_MESSAGE_LENGTH);
+	FCPMessage message = *fcpMessageFromBuffer(buffer);
+	
+	switch(message.op){
+		case FCP_ACK:{
+			printf("Server has sent ack back, starting transfer\n");
 		}
 	}
 }
