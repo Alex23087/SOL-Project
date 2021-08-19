@@ -62,8 +62,9 @@ void clientListRemove(ClientList** list, int descriptor){
 		return;
 	}
 	if(current->descriptor == descriptor){
+		current = (*list)->next;
 		free(*list);
-		*list = NULL;
+		*list = current;
 		return;
 	}
 	while(current->next != NULL && current->next->descriptor != descriptor){
@@ -82,6 +83,9 @@ void clientListUpdateStatus(ClientList* list, int descriptor, ConnectionStatus s
 	ClientList* current = list;
 	while(current != NULL){
 		if(current->descriptor == descriptor){
+			if(current->status.data.filename != NULL){
+				free(current->status.data.filename);
+			}
 			current->status = status;
 			return;
 		}

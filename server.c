@@ -246,8 +246,6 @@ void* workerThread(void* arg){
 					printf("[Worker #%d]: Received file from client %d, %d bytes transferred\n", (int)arg, fdToServe, bytesRead);
 					printf("[Worker #%d]: Sending ack to client %d\n", (int)arg, fdToServe);
 					
-					fcpSend(FCP_ACK, 0, NULL, fdToServe);
-					
 					ConnectionStatus newStatus;
 					newStatus.op = Connected;
 					newStatus.data.messageLength = 0;
@@ -255,6 +253,8 @@ void* workerThread(void* arg){
 					pthread_mutex_lock_error(&clientListLock, "Error while locking client list");
 					clientListUpdateStatus(clientList, fdToServe, newStatus);
 					pthread_mutex_unlock_error(&clientListLock, "Error while unlocking client list");
+					
+					fcpSend(FCP_ACK, 0, NULL, fdToServe);
 					
 					w2mSend(W2M_CLIENT_SERVED, fdToServe);
 				}
