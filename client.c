@@ -5,6 +5,21 @@
 
 #include "ClientAPI.h"
 #include "defines.h"
+#include "queue.h"
+
+typedef enum ClientOperation{
+	WriteFile
+} ClientOperation;
+
+typedef union ClientParameter{
+	int intValue;
+	char* stringValue;
+} ClientParameter;
+
+typedef struct ClientCommand{
+	ClientOperation op;
+	ClientParameter parameter;
+} ClientCommand;
 
 #ifdef IDE
 int clientMain(int argc, char** argv){
@@ -21,6 +36,7 @@ int clientMain(int argc, char** argv){
 	bool issuedWriteOperation = false;
 	bool issuedReadOperation = false;
 	unsigned long timeBetweenRequests = 0;
+	Queue* commandQueue = NULL;
 	
 	while(!finished){
 		opt = getopt(argc, argv, "hf:w:W:D:r:R:d:t:l:u:c:p:");
@@ -28,6 +44,7 @@ int clientMain(int argc, char** argv){
 			case 'h':{
 				//TODO: Write client help
 				printf("%s\n", argv[0]);
+				finished = true;
 				break;
 			}
 			case 'f':{
@@ -41,7 +58,11 @@ int clientMain(int argc, char** argv){
 			}
 			case 'W':{
 				issuedWriteOperation = true;
-				//TODO: Implement this
+				ClientCommand* cmd = malloc(sizeof(ClientCommand));
+				cmd->op = WriteFile;
+				cmd->parameter.stringValue = optarg;
+				//TODO: Check if passing optarg is safe or if a strncpy is necessary
+				queuePush(&commandQueue, (void*)cmd);
 				break;
 			}
 			case 'D':{
@@ -85,6 +106,7 @@ int clientMain(int argc, char** argv){
 			}
 			case '?':{
 				fprintf(stderr, "Unrecognized option: %c\n", optopt);
+				finished = true;
 				return -1;
 			}
 			case -1:{
@@ -117,9 +139,25 @@ int clientMain(int argc, char** argv){
 	
 	openConnection(socketPath, 400, ts);
 	sleep(1);
-	if(issuedWriteOperation){
-		writeFile(NULL, NULL);
+	
+	
+	//Process command queue
+	finished = false;
+	while(!finished && !queueIsEmpty(commandQueue)){
+		ClientCommand* currentCommand = (ClientCommand*)queuePop(&commandQueue);
+		switch(currentCommand->op) {
+			case WriteFile:{
+				if(writeFile(currentCommand->parameter.stringValue, cacheMissFolderPath)){
+					perror("Error while writing file to server");
+					finished = true;
+				}
+				break;
+			}
+		}
+		free(currentCommand);
 	}
+	
+	
 	sleep(1);
 	closeConnection(socketPath);
 	

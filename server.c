@@ -30,6 +30,7 @@ static Queue* incomingConnectionsQueue = NULL;
 static pthread_mutex_t incomingConnectionsLock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t incomingConnectionsCond = PTHREAD_COND_INITIALIZER;
 static bool workersShouldTerminate = false;
+static pthread_mutex_t clientListLock = PTHREAD_MUTEX_INITIALIZER;
 static ClientList* clientList = NULL;
 
 
@@ -176,7 +177,7 @@ void* workerThread(void* arg){
 		}
 		int fdToServe;
 		if(!workersShouldTerminate){
-			fdToServe = queuePop(&incomingConnectionsQueue);
+			fdToServe = (int)(long)queuePop(&incomingConnectionsQueue);
 		}
 		pthread_mutex_unlock_error(&incomingConnectionsLock, "Error while unlocking on incoming connection from worker");
 		if(workersShouldTerminate){
@@ -185,7 +186,9 @@ void* workerThread(void* arg){
 		
 		//Serve connection
 		printf("[Worker #%d]: Serving client on descriptor %d\n", (int)arg, fdToServe);
+		pthread_mutex_lock_error(&clientListLock, "Error while locking client list");
 		ConnectionStatus status = clientListGetStatus(clientList, fdToServe);
+		pthread_mutex_unlock_error(&clientListLock, "Error while unlocking client list");
 		switch(status.op){
 			case Connected:{
 				char fcpBuffer[FCP_MESSAGE_LENGTH];
@@ -208,7 +211,9 @@ void* workerThread(void* arg){
 							newStatus.data.messageLength = fcpMessage->size;
 							newStatus.data.filename = malloc(FCP_MESSAGE_LENGTH - 5);
 							strncpy(newStatus.data.filename, fcpMessage->filename, FCP_MESSAGE_LENGTH - 5);
+							pthread_mutex_lock_error(&clientListLock, "Error while locking client list");
 							clientListUpdateStatus(clientList, fdToServe, newStatus);
+							pthread_mutex_unlock_error(&clientListLock, "Error while unlocking client list");
 							
 							fcpSend(FCP_ACK, 0, NULL, fdToServe);
 							
@@ -225,10 +230,42 @@ void* workerThread(void* arg){
 				}
 				break;
 			}
+			case SendingFile:{
+				int32_t fileSize = status.data.messageLength;
+				
+				char* buffer = malloc(fileSize);
+				size_t bytesRead = readn(fdToServe, buffer, fileSize);
+				if(bytesRead != fileSize){
+					//Client sent an ill-formed packet, disconnecting it
+					printf("[Worker #%d]: Client %d sent a different amount of bytes than advertised (%d vs %d), disconnecting it\n", (int)arg, fdToServe, status.data.messageLength, bytesRead);
+					workerDisconnectClient((int)arg, fdToServe);
+				}else{
+					//TODO: Check if the message was longer than advertised and throw error
+					
+					//Transfer completed successfully, send ack to client, set client status to connected, and send client served message to master
+					printf("[Worker #%d]: Received file from client %d, %d bytes transferred\n", (int)arg, fdToServe, bytesRead);
+					printf("[Worker #%d]: Sending ack to client %d\n", (int)arg, fdToServe);
+					
+					fcpSend(FCP_ACK, 0, NULL, fdToServe);
+					
+					ConnectionStatus newStatus;
+					newStatus.op = Connected;
+					newStatus.data.messageLength = 0;
+					newStatus.data.filename = NULL;
+					pthread_mutex_lock_error(&clientListLock, "Error while locking client list");
+					clientListUpdateStatus(clientList, fdToServe, newStatus);
+					pthread_mutex_unlock_error(&clientListLock, "Error while unlocking client list");
+					
+					w2mSend(W2M_CLIENT_SERVED, fdToServe);
+				}
+				free(buffer);
+				break;
+			}
 			default:{
 				//Invalid status
 				printf("[Worker #%d]: Client %d has sent a message while in an invalid status, disconnecting it\n", (int)arg, fdToServe);
 				workerDisconnectClient((int)arg, fdToServe);
+				break;
 			}
 		}
 	}
@@ -433,7 +470,9 @@ int onNewConnectionReceived(int serverSocketDescriptor, fd_set* selectFdSet, int
 #endif
 	addToFdSetUpdatingMax(newClientDescriptor, selectFdSet, maxFd);
 	
+	pthread_mutex_lock_error(&clientListLock, "Error while locking client list");
 	clientListAdd(&clientList, newClientDescriptor);
+	pthread_mutex_unlock_error(&clientListLock, "Error while unlocking client list");
 #ifdef DEBUG
 	printf("[Master]: Client %d added to list of connected clients\n", newClientDescriptor);
 #endif
@@ -484,7 +523,9 @@ int onW2MMessageReceived(int serverSocketDescriptor, fd_set* selectFdSet, int* m
 		case W2M_CLIENT_DISCONNECTED:{
 			int clientFd = getIntFromW2MMessage(buffer);
 			
+			pthread_mutex_lock_error(&clientListLock, "Error while locking client list");
 			clientListRemove(&clientList, clientFd);
+			pthread_mutex_unlock_error(&clientListLock, "Error while unlocking client list");
 #ifdef DEBUG
 			printf("[Master]: Client %d removed from list of connected clients\n",clientFd);
 #endif

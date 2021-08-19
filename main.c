@@ -1,4 +1,5 @@
 #include <unistd.h>
+#include <stdio.h>
 
 #include "server.h"
 #include "client.h"
@@ -14,8 +15,8 @@ int main() {
     
 	freeArgsListNode(args);
     */
-    if(fork()){
-    	sleep(1);
+    setbuf(stdout, NULL);
+    if(1){
     	const int len = 2;
     	char* argv[len];
     	argv[0] = "server";
@@ -26,9 +27,9 @@ int main() {
     	char* argv[len];
     	argv[0] = "client";
     	argv[1] = "-D";
-    	argv[2] = "test";
-    	argv[3] = "-w";
-    	argv[4] = "test";
+    	argv[2] = "/tmp";
+    	argv[3] = "-W";
+    	argv[4] = "/mnt/e/Progetti/SOL-Project/config.txt";
     	argv[5] = "-f";
     	argv[6] = "/tmp/LSOfilestorage.sk";
     	clientMain(len, (char **) argv);

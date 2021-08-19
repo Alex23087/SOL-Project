@@ -3,13 +3,13 @@
 
 #include "defines.h"
 typedef struct Queue{
-	int data;
+	void* data;
 	struct Queue* next;
 } Queue;
 
-void queuePush(Queue** queue, int data);
+void queuePush(Queue** queue, void* data);
 
-int queuePop(Queue** queue);
+void* queuePop(Queue** queue);
 
 void queueFree(Queue* queue);
 

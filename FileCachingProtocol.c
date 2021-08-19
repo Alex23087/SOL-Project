@@ -95,5 +95,6 @@ ConnectionStatus clientListGetStatus(ClientList* list, int descriptor){
 		if(current->descriptor == descriptor){
 			return current->status;
 		}
+		current = current->next;
 	}
 }

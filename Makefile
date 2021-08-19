@@ -6,7 +6,7 @@ server: server.o ParseUtils.o ion.o queue.o FileCachingProtocol.o
 
 server.o: server.c server.h
 
-client: client.o ClientAPI.o timespecUtils.o ParseUtils.o ion.o FileCachingProtocol.o
+client: client.o ClientAPI.o timespecUtils.o ParseUtils.o ion.o FileCachingProtocol.o queue.o
 	$(CC) $(CFLAGS) $^ -o $@
 
 client.o: client.c client.h

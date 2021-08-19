@@ -5,6 +5,9 @@
 #include <unistd.h>
 #include <time.h>
 #include <errno.h>
+#include <fcntl.h>
+#include <malloc.h>
+#include <sys/stat.h>
 
 #include "ClientAPI.h"
 #include "timespecUtils.h"
@@ -105,17 +108,61 @@ int writeFile(const char* pathname, const char* dirname){
 		return -1;
 	}
 	
+	int fileDescriptor = open(pathname, O_RDONLY);
+	if(fileDescriptor == -1){
+		//Open failed, errno has already been set by it
+		return -1;
+	}
+	struct stat fileStat;
+	if(fstat(fileDescriptor, &fileStat)){
+		//Fstat failed, errno has already been set by it
+		return -1;
+	}
+	off_t fileSize = fileStat.st_size;
+	
 	printf("Sending write request to server\n");
-	fcpSend(FCP_WRITE, 1024, "test", activeConnectionFD);
+	fcpSend(FCP_WRITE, (int)fileSize, (char*)pathname, activeConnectionFD);
 	printf("Write request sent\n");
 	
-	char buffer[FCP_MESSAGE_LENGTH];
-	readn(activeConnectionFD, buffer, FCP_MESSAGE_LENGTH);
-	FCPMessage message = *fcpMessageFromBuffer(buffer);
+	char fcpBuffer[FCP_MESSAGE_LENGTH];
+	readn(activeConnectionFD, fcpBuffer, FCP_MESSAGE_LENGTH);
+	FCPMessage* message = fcpMessageFromBuffer(fcpBuffer);
 	
-	switch(message.op){
+	bool success = true;
+	switch(message->op){
 		case FCP_ACK:{
 			printf("Server has sent ack back, starting transfer\n");
+			char* fileBuffer = malloc(fileSize);
+			readn(fileDescriptor, fileBuffer, fileSize);
+			writen(activeConnectionFD, fileBuffer, fileSize);
+			free(fileBuffer);
+			printf("File transfer complete, waiting for ack\n");
+			fcpBuffer[4] = 0;
+			if(readn(activeConnectionFD, fcpBuffer, FCP_MESSAGE_LENGTH) == FCP_MESSAGE_LENGTH){
+				free(message);
+				message = fcpMessageFromBuffer(fcpBuffer);
+			
+				switch(message->op) {
+					case FCP_ACK:{
+						printf("Received ack from server, operation completed successfully\n");
+						break;
+					}
+					default:{
+						printf("Server sent an invalid reply, operation failed\n");
+						errno = EPROTO; //EBADMSG EPROTO EMSGSIZE EILSEQ
+						success = false;
+						break;
+					}
+				}
+			}else{
+				printf("Server sent an invalid reply, operation failed\n");
+				errno = EPROTO;
+				success = false;
+			}
+			break;
 		}
 	}
+	
+	free(message);
+	return success ? 0 : -1;
 }

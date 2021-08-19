@@ -2,14 +2,14 @@
 #include <malloc.h>
 #include "queue.h"
 
-Queue* initQueueNode(int data){
+Queue* initQueueNode(void* data){
 	Queue* out = malloc(sizeof(Queue));
 	out->data = data;
 	out->next = NULL;
 	return out;
 }
 
-void queuePush(Queue** queue, int data){
+void queuePush(Queue** queue, void* data){
 	Queue* current = *queue;
 	if(current == NULL){
 		*queue = initQueueNode(data);
@@ -21,10 +21,10 @@ void queuePush(Queue** queue, int data){
 	current->next = initQueueNode(data);
 }
 
-int queuePop(Queue** queue){
+void* queuePop(Queue** queue){
 	Queue* tmp = *queue;
 	*queue = (*queue)->next;
-	int out = tmp->data;
+	void* out = tmp->data;
 	free(tmp);
 	return out;
 }
