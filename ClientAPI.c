@@ -101,10 +101,55 @@ int closeConnection(const char* sockname){
 	}
 }
 
+int openFile(const char* pathname, int flags){
+	if(activeConnectionFD == -1){
+		//Function called without an active connection
+		errno = ENOTCONN;
+		return -1;
+	}
+	
+	if(strlen(pathname) > FCP_MESSAGE_LENGTH - 5){
+		errno = ENAMETOOLONG;
+		return -1;
+	}
+	
+	printf("Sending open request to server\n");
+	fcpSend(FCP_WRITE, flags, (char*)pathname, activeConnectionFD);
+	printf("Open request sent\n");
+	
+	char fcpBuffer[FCP_MESSAGE_LENGTH];
+	readn(activeConnectionFD, fcpBuffer, FCP_MESSAGE_LENGTH);
+	FCPMessage* message = fcpMessageFromBuffer(fcpBuffer);
+	
+	bool success = true;
+	switch(message->op){
+		case FCP_ACK:{
+			printf("File opened correctly\n");
+			break;
+		}
+		case FCP_ERROR:{
+			errno =	message->control;
+			success = false;
+			break;
+		}
+		default:{
+			success = false;
+		}
+	}
+	
+	free(message);
+	return success ? 0 : -1;
+}
+
 int writeFile(const char* pathname, const char* dirname){
 	if(activeConnectionFD == -1){
 		//Function called without an active connection
 		errno = ENOTCONN;
+		return -1;
+	}
+	
+	if(strlen(pathname) > FCP_MESSAGE_LENGTH - 5){
+		errno = ENAMETOOLONG;
 		return -1;
 	}
 	

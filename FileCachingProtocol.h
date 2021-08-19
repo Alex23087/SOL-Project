@@ -3,6 +3,8 @@
 
 #define FCP_MESSAGE_LENGTH 256
 
+#include <stdint.h>
+
 typedef enum ClientOperation{
 	Connected,
 	SendingFile,
@@ -38,14 +40,21 @@ typedef enum FCPOpcode{
 	FCP_UNLOCK,
 	FCP_CLOSE,
 	FCP_REMOVE,
-	FCP_ACK
+	FCP_ACK,
+	FCP_ERROR
 } FCPOpcode;
+
+#define O_CREATE 1
+#define O_LOCK 2
+
+#define FCP_OPEN_FLAG_ISSET(flags, flagToCheck) \
+	(((flags) | (flagToCheck)) == (flags))
 
 #pragma pack(1)
 //The pragma directive shouldn't be needed, the struct is ordered in a way that should
 // result in the correct alignment. However, better include it to be sure
 typedef struct FCPMessage{
-	int32_t size;
+	int32_t control;
 	char op;
 	char filename[251];
 } FCPMessage;
@@ -66,17 +75,5 @@ void clientListRemove(ClientList** list, int descriptor);
 void clientListUpdateStatus(ClientList* list, int descriptor, ConnectionStatus status);
 
 ConnectionStatus clientListGetStatus(ClientList* list, int descriptor);
-
-#ifdef no
-#define FCP_OPEN 'O'
-#define FCP_READ 'R'
-#define FCP_READ_N 'N'
-#define FCP_WRITE 'W'
-#define FCP_APPEND 'A'
-#define FCP_LOCK 'L'
-#define FCP_UNLOCK 'U'
-#define FCP_CLOSE 'C'
-#define FCP_REMOVE 'D'
-#endif
 
 #endif //SOL_PROJECT_FILECACHINGPROTOCOL_H

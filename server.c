@@ -6,12 +6,15 @@
 #include <signal.h>
 #include <sys/socket.h>
 #include <sys/un.h>
+#include <errno.h>
 
 #include "defines.h"
 #include "ParseUtils.h"
 #include "ion.h"
 #include "queue.h"
 #include "FileCachingProtocol.h"
+#include "ClientAPI.h"
+#include "FileCache.h"
 
 #define MAX_BACKLOG 10
 #define W2M_MESSAGE_LENGTH 5
@@ -32,6 +35,8 @@ static pthread_cond_t incomingConnectionsCond = PTHREAD_COND_INITIALIZER;
 static bool workersShouldTerminate = false;
 static pthread_mutex_t clientListLock = PTHREAD_MUTEX_INITIALIZER;
 static ClientList* clientList = NULL;
+static pthread_mutex_t fileCacheLock = PTHREAD_MUTEX_INITIALIZER; //Needed to add and remove files
+static FileCache* fileCache = NULL;
 
 
 static inline void addToFdSetUpdatingMax(int fd, fd_set* fdSet, int* maxFd){
@@ -168,7 +173,8 @@ int workerDisconnectClient(int workerN, int fdToServe){
 }
 
 void* workerThread(void* arg){
-	printf("[Worker #%d]: Up and running\n", (int)arg);
+	int threadNumber = (int)(long)arg;
+	printf("[Worker #%d]: Up and running\n", threadNumber);
 	while(!workersShouldTerminate){
 		//Wait for connection to serve
 		pthread_mutex_lock_error(&incomingConnectionsLock, "Error while locking on incoming connection from worker");
@@ -185,7 +191,7 @@ void* workerThread(void* arg){
 		}
 		
 		//Serve connection
-		printf("[Worker #%d]: Serving client on descriptor %d\n", (int)arg, fdToServe);
+		printf("[Worker #%d]: Serving client on descriptor %d\n", threadNumber, fdToServe);
 		pthread_mutex_lock_error(&clientListLock, "Error while locking client list");
 		ConnectionStatus status = clientListGetStatus(clientList, fdToServe);
 		pthread_mutex_unlock_error(&clientListLock, "Error while unlocking client list");
@@ -197,7 +203,7 @@ void* workerThread(void* arg){
 				//TODO: Handle wrong number of bytes read
 				if(fcpBytesRead == 0){
 					//Client disconnected
-					if(workerDisconnectClient((int)arg, fdToServe)){
+					if(workerDisconnectClient(threadNumber, fdToServe)){
 						//TODO: Handle error
 					}
 				}else{
@@ -205,10 +211,10 @@ void* workerThread(void* arg){
 					switch(fcpMessage->op){
 						case FCP_WRITE:{
 							//Client has issued a write request: update client status, send ack, warn master
-							printf("[Worker #%d]: Client %d issued op: %d (FCP_WRITE), size: %d, filename: \"%s\"\n", (int)arg, fdToServe, fcpMessage->op, fcpMessage->size, fcpMessage->filename);
+							printf("[Worker #%d]: Client %d issued op: %d (FCP_WRITE), size: %d, filename: \"%s\"\n", threadNumber, fdToServe, fcpMessage->op, fcpMessage->control, fcpMessage->filename);
 							ConnectionStatus newStatus;
 							newStatus.op = SendingFile;
-							newStatus.data.messageLength = fcpMessage->size;
+							newStatus.data.messageLength = fcpMessage->control;
 							newStatus.data.filename = malloc(FCP_MESSAGE_LENGTH - 5);
 							strncpy(newStatus.data.filename, fcpMessage->filename, FCP_MESSAGE_LENGTH - 5);
 							pthread_mutex_lock_error(&clientListLock, "Error while locking client list");
@@ -220,10 +226,37 @@ void* workerThread(void* arg){
 							w2mSend(W2M_CLIENT_SERVED, fdToServe);
 							break;
 						}
+						case FCP_OPEN:{
+							//Client has issued an open request: check legitimacy of the request, send error or open and send ack, warn master
+							printf("[Worker #%d]: Client %d issued op: %d (FCP_OPEN), flags: %d, filename: \"%s\"\n", threadNumber, fdToServe, fcpMessage->op, fcpMessage->control, fcpMessage->filename);
+							
+							int error = 0;
+							pthread_mutex_lock_error(&fileCacheLock, "Error while locking on file cache");
+							bool exists = fileExists(fileCache, fcpMessage->filename);
+							pthread_mutex_unlock_error(&fileCacheLock, "Error while unlocking on file cache");
+							
+							if(exists && FCP_OPEN_FLAG_ISSET(fcpMessage->control, O_CREATE)){
+								error = EEXIST;
+							}else if(!exists && !FCP_OPEN_FLAG_ISSET(fcpMessage->control, O_CREATE)){
+								error = ENOENT;
+							}
+							
+							if(error){
+								fcpSend(FCP_ERROR, error, NULL, fdToServe);
+							}else{
+								pthread_mutex_lock_error(&fileCacheLock, "Error while locking on file cache");
+								createFile(fileCache, fcpMessage->filename);
+								pthread_mutex_unlock_error(&fileCacheLock, "Error while unlocking on file cache");
+								fcpSend(FCP_ACK, 0, NULL, fdToServe);
+							}
+							
+							w2mSend(W2M_CLIENT_SERVED, fdToServe);
+							break;
+						}
 						default:{
 							//Client has requested an invalid operation, forcibly disconnect client
-							printf("[Worker #%d]: Client %d has requested an invalid operation with opcode %d\n", (int)arg, fdToServe, fcpMessage->op);
-							workerDisconnectClient((int)arg, fdToServe);
+							printf("[Worker #%d]: Client %d has requested an invalid operation with opcode %d\n", threadNumber, fdToServe, fcpMessage->op);
+							workerDisconnectClient(threadNumber, fdToServe);
 						}
 					}
 					free(fcpMessage);
@@ -237,14 +270,14 @@ void* workerThread(void* arg){
 				size_t bytesRead = readn(fdToServe, buffer, fileSize);
 				if(bytesRead != fileSize){
 					//Client sent an ill-formed packet, disconnecting it
-					printf("[Worker #%d]: Client %d sent a different amount of bytes than advertised (%d vs %d), disconnecting it\n", (int)arg, fdToServe, status.data.messageLength, bytesRead);
-					workerDisconnectClient((int)arg, fdToServe);
+					printf("[Worker #%d]: Client %d sent a different amount of bytes than advertised (%d vs %ld), disconnecting it\n", threadNumber, fdToServe, status.data.messageLength, bytesRead);
+					workerDisconnectClient(threadNumber, fdToServe);
 				}else{
 					//TODO: Check if the message was longer than advertised and throw error
 					
 					//Transfer completed successfully, send ack to client, set client status to connected, and send client served message to master
-					printf("[Worker #%d]: Received file from client %d, %d bytes transferred\n", (int)arg, fdToServe, bytesRead);
-					printf("[Worker #%d]: Sending ack to client %d\n", (int)arg, fdToServe);
+					printf("[Worker #%d]: Received file from client %d, %ld bytes transferred\n", threadNumber, fdToServe, bytesRead);
+					printf("[Worker #%d]: Sending ack to client %d\n", threadNumber, fdToServe);
 					
 					ConnectionStatus newStatus;
 					newStatus.op = Connected;
@@ -263,14 +296,14 @@ void* workerThread(void* arg){
 			}
 			default:{
 				//Invalid status
-				printf("[Worker #%d]: Client %d has sent a message while in an invalid status, disconnecting it\n", (int)arg, fdToServe);
-				workerDisconnectClient((int)arg, fdToServe);
+				printf("[Worker #%d]: Client %d has sent a message while in an invalid status, disconnecting it\n", threadNumber, fdToServe);
+				workerDisconnectClient(threadNumber, fdToServe);
 				break;
 			}
 		}
 	}
 	
-	printf("[Worker #%d]: Terminating\n", (int)arg);
+	printf("[Worker #%d]: Terminating\n", threadNumber);
 	return (void*)0;
 }
 
@@ -333,6 +366,7 @@ int main(int argc, char** argv){
 	//TODO: Maybe change the config so that you can specify sizes such as "100M", "1G", etc.
 	freeArgsListNode(configArgs);
 	
+	fileCache = initFileCache(maxFiles, storageSize);
 	
 	//Creating server listen socket
 	int serverSocketDescriptor = -1;
@@ -453,11 +487,10 @@ int main(int argc, char** argv){
 		perror("Error while closing w2m pipe write endpoint");
 	}
 	
+	freeFileCache(&fileCache);
 	cleanup();
 	return 0;
 }
-
-
 
 int onNewConnectionReceived(int serverSocketDescriptor, fd_set* selectFdSet, int* maxFd){
 	int newClientDescriptor = accept(serverSocketDescriptor, NULL, NULL);
@@ -479,10 +512,9 @@ int onNewConnectionReceived(int serverSocketDescriptor, fd_set* selectFdSet, int
 	return 0;
 }
 
-
 int onW2MMessageReceived(int serverSocketDescriptor, fd_set* selectFdSet, int* maxFd, bool* running){
 	char buffer[W2M_MESSAGE_LENGTH];
-	ssize_t bytesRead = readn(w2mPipeDescriptors[0], &buffer, W2M_MESSAGE_LENGTH);
+	ssize_t bytesRead = readn(w2mPipeDescriptors[0], buffer, W2M_MESSAGE_LENGTH);
 	if(bytesRead < W2M_MESSAGE_LENGTH){
 		//TODO: Handle error
 		perror("Invalid message length on worker-to-master pipe");
@@ -536,12 +568,11 @@ int onW2MMessageReceived(int serverSocketDescriptor, fd_set* selectFdSet, int* m
 	return 0;
 }
 
-
 int onConnectedClientMessage(int currentFd, fd_set* selectFdSet, int* maxFd){
 	removeFromFdSetUpdatingMax(currentFd, selectFdSet, maxFd);
 	
 	pthread_mutex_lock_error(&incomingConnectionsLock, "Error while locking on incoming connections queue");
-	queuePush(&incomingConnectionsQueue, currentFd);
+	queuePush(&incomingConnectionsQueue, (void*)(long)currentFd);
 	pthread_cond_signal_error(&incomingConnectionsCond, "Error while signaling incoming connection");
 	pthread_mutex_unlock_error(&incomingConnectionsLock, "Error while locking on incoming connections queue");
 	return 0;

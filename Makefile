@@ -1,7 +1,7 @@
 CC = gcc
 override CFLAGS += -Wall -pedantic
 
-server: server.o ParseUtils.o ion.o queue.o FileCachingProtocol.o
+server: server.o ParseUtils.o ion.o queue.o FileCachingProtocol.o FileCache.o
 	$(CC) $(CFLAGS) -pthread $^ -o $@
 
 server.o: server.c server.h
@@ -22,6 +22,8 @@ ion.o: ion.c ion.h
 queue.o: queue.c queue.h
 
 FileCachingProtocol.o: FileCachingProtocol.c FileCachingProtocol.h
+
+FileCache.o: FileCache.c FileCache.h
 
 .PHONY: clean cleanall
 

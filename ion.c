@@ -1,7 +1,7 @@
 #include <unistd.h>
 #include "ion.h"
 
-ssize_t readn(int fd, void *ptr, size_t n) { /* Read "n" bytes from a descriptor */
+ssize_t readn(int fd, char *ptr, size_t n) { /* Read "n" bytes from a descriptor */
 	size_t   nleft;
 	ssize_t  nread;
  
@@ -17,7 +17,7 @@ ssize_t readn(int fd, void *ptr, size_t n) { /* Read "n" bytes from a descriptor
 	return(n - nleft); /* return >= 0 */
 }
 
-ssize_t writen(int fd, void *ptr, size_t n) { /* Write "n" bytes to a descriptor */
+ssize_t writen(int fd, char *ptr, size_t n) { /* Write "n" bytes to a descriptor */
 	size_t   nleft;
 	ssize_t  nwritten;
  

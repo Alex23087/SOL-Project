@@ -2,6 +2,7 @@
 #include <stddef.h>
 #include <malloc.h>
 #include <memory.h>
+#include <pthread.h>
 #include "FileCachingProtocol.h"
 #include "ion.h"
 
@@ -20,7 +21,7 @@ char* fcpBufferFromMessage(FCPMessage message){
 FCPMessage* fcpMakeMessage(FCPOpcode operation, int32_t size, char* filename){
 	FCPMessage* message = malloc(FCP_MESSAGE_LENGTH);
 	message->op = operation;
-	message->size = size;
+	message->control = size;
 	if(filename != NULL){
 		strncpy(message->filename, filename, FCP_MESSAGE_LENGTH - 5);
 	}
@@ -101,4 +102,7 @@ ConnectionStatus clientListGetStatus(ClientList* list, int descriptor){
 		}
 		current = current->next;
 	}
+	//Trying to get status of a non connected client, fatal error
+	fprintf(stderr, "Trying to get status of a non connected client, terminating thread\n");
+	pthread_exit(NULL);
 }
