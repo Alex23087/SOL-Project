@@ -72,7 +72,8 @@ int openConnection(const char* sockname, int msec, const struct timespec abstime
 		newConnection->type = Long;
 		newConnection->name = malloc(strlen(sockname) + 1);
 		strcpy(newConnection->name, sockname);
-		newConnection->data = (void*)((long)clientSocketDescriptor);
+		newConnection->data = malloc(sizeof(long));
+		*(long*)(newConnection->data) = ((long)clientSocketDescriptor);
 		newConnection->next = openConnections;
 		openConnections = newConnection;
 		
@@ -94,7 +95,7 @@ int closeConnection(const char* sockname){
 		errno = ENOTCONN;
 		return -1;
 	}else{
-		int fd = (int)(long)(connection->data);
+		int fd = getLongValue(connection, sockname);
 		if(close(fd)){
 			//Error while closing connection, errno has been set by close()
 			return -1;
@@ -218,6 +219,46 @@ int writeFile(const char* pathname, const char* dirname){
 		default:{
 			success = false;
 			break;
+		}
+	}
+	
+	free(message);
+	return success ? 0 : -1;
+}
+
+int closeFile(const char* pathname){
+	if(activeConnectionFD == -1){
+		//Function called without an active connection
+		errno = ENOTCONN;
+		return -1;
+	}
+	
+	if(strlen(pathname) > FCP_MESSAGE_LENGTH - 5){
+		errno = ENAMETOOLONG;
+		return -1;
+	}
+	
+	printf("Sending close request to server\n");
+	fcpSend(FCP_CLOSE, 0, (char*)pathname, activeConnectionFD);
+	printf("Close request sent\n");
+	
+	char fcpBuffer[FCP_MESSAGE_LENGTH];
+	readn(activeConnectionFD, fcpBuffer, FCP_MESSAGE_LENGTH);
+	FCPMessage* message = fcpMessageFromBuffer(fcpBuffer);
+	
+	bool success = true;
+	switch(message->op){
+		case FCP_ACK:{
+			printf("File closed correctly\n");
+			break;
+		}
+		case FCP_ERROR:{
+			errno =	message->control;
+			success = false;
+			break;
+		}
+		default:{
+			success = false;
 		}
 	}
 	

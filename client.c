@@ -154,6 +154,10 @@ int clientMain(int argc, char** argv){
 					if(writeFile(currentCommand->parameter.stringValue, cacheMissFolderPath)){
 						perror("Error while writing file to server");
 						finished = true;
+					}else{
+						if(closeFile(currentCommand->parameter.stringValue)){
+							perror("Error while closing file");
+						}
 					}
 				}
 				break;

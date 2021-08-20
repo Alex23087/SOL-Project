@@ -139,9 +139,7 @@ void freeArgsListNode(ArgsList* node){
 		freeArgsListNode(node->next);
 		node->next = NULL;
 	}
-	if(node->type == String){
-		free(node->data);
-	}
+	free(node->data);
 	free(node->name);
 	free(node);
 	node = NULL;

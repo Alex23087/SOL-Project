@@ -132,6 +132,10 @@ bool isFileOpen(OpenFilesList* list, const char* filename){
 	return false;
 }
 
+bool isFileOpenedByClient(ClientList* list, const char* filename, int descriptor){
+	return isFileOpen(*getFileListForDescriptor(list, descriptor), filename);
+}
+
 void addOpenFile(OpenFilesList** list, const char* filename){
 	OpenFilesList* newNode = malloc(sizeof(OpenFilesList));
 	newNode->filename = malloc(strlen(filename) + 1);

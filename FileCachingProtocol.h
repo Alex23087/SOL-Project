@@ -90,6 +90,8 @@ bool isFileOpen(OpenFilesList* list, const char* filename);
 void addOpenFile(OpenFilesList** list, const char* filename);
 */
 
+bool isFileOpenedByClient(ClientList* list, const char* filename, int descriptor);
+
 void setFileOpened(ClientList* list, int descriptor, const char* filename);
 
 void setFileClosed(ClientList* list, int descriptor, const char* filename);

@@ -329,10 +329,48 @@ void* workerThread(void* arg){
 							w2mSend(W2M_CLIENT_SERVED, fdToServe);
 							break;
 						}
+						case FCP_CLOSE:{
+							//Client has issued a close request, check if file exists, if it's open
+							printf("[Worker #%d]: Client %d issued op: %d (FCP_CLOSE), filename: \"%s\"\n", workerID, fdToServe, fcpMessage->op, fcpMessage->filename);
+							
+							int error = 0;
+							pthread_rwlock_rdlock_error(&fileCacheLock, "Error while locking on file cache");
+							bool exists = fileExists(fileCache, fcpMessage->filename);
+							pthread_rwlock_unlock_error(&fileCacheLock, "Error while unlocking on file cache");
+							
+							if(exists){
+								pthread_rwlock_rdlock_error(&clientListLock, "Error while locking on client list");
+								bool isOpen = isFileOpenedByClient(clientList, fcpMessage->filename, fdToServe);
+								pthread_rwlock_unlock_error(&clientListLock, "Error while unlocking on client list");
+								
+								if(isOpen){
+									pthread_rwlock_rdlock_error(&clientListLock, "Error while locking on client list");
+									setFileClosed(clientList, fdToServe, fcpMessage->filename);
+									pthread_rwlock_unlock_error(&clientListLock, "Error while unlocking on client list");
+									
+									//Everything went well, file is closed, warn client and master
+									printf("[Worker #%d]: Client %d successfully closed the file\n", workerID, fdToServe);
+									fcpSend(FCP_ACK, 0, NULL, fdToServe);
+									w2mSend(W2M_CLIENT_SERVED, fdToServe);
+								}else{
+									//Trying to close a file that's not open, send error
+									error = EBADF;
+									fcpSend(FCP_ERROR, error, NULL, fdToServe);
+									w2mSend(W2M_CLIENT_SERVED, fdToServe);
+								}
+							}else{
+								//Trying to close a nonexistent file, send error
+								error = ENOENT;
+								fcpSend(FCP_ERROR, error, NULL, fdToServe);
+								w2mSend(W2M_CLIENT_SERVED, fdToServe);
+							}
+							break;
+						}
 						default:{
-							//Client has requested an invalid operation, forcibly disconnect client
+							//Client has requested an invalid operation, forcibly disconnect it
 							printf("[Worker #%d]: Client %d has requested an invalid operation with opcode %d\n", workerID, fdToServe, fcpMessage->op);
 							workerDisconnectClient(workerID, fdToServe);
+							break;
 						}
 					}
 					free(fcpMessage);
