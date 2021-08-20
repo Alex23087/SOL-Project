@@ -40,8 +40,12 @@ void addFile(FileList** list, CachedFile* file);
 
 bool fileExists(FileCache* fileCache, const char* filename);
 
-void createFile(FileCache* fileCache, const char* filename);
+CachedFile* createFile(FileCache* fileCache, const char* filename);
 
 void freeFileCache(FileCache** fileCache);
+
+CachedFile* getFile(FileCache* fileCache, const char* filename);
+
+CachedFile* getFileLockedByClient(FileCache* fileCache, int clientFd);
 
 #endif //SOL_PROJECT_FILECACHE_H

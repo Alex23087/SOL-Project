@@ -16,8 +16,9 @@
 #include "FileCachingProtocol.h"
 #include "ion.h"
 
-ArgsList* openConnections = NULL;
-int activeConnectionFD = -1;
+//Open connections key value list, useful if the API is extended to handle more connections
+static ArgsList* openConnections = NULL;
+static int activeConnectionFD = -1;
 
 int openConnection(const char* sockname, int msec, const struct timespec abstime){
 	if(getNodeForKey(openConnections, sockname) != NULL){
@@ -114,7 +115,7 @@ int openFile(const char* pathname, int flags){
 	}
 	
 	printf("Sending open request to server\n");
-	fcpSend(FCP_WRITE, flags, (char*)pathname, activeConnectionFD);
+	fcpSend(FCP_OPEN, flags, (char*)pathname, activeConnectionFD);
 	printf("Open request sent\n");
 	
 	char fcpBuffer[FCP_MESSAGE_LENGTH];
@@ -204,6 +205,15 @@ int writeFile(const char* pathname, const char* dirname){
 				errno = EPROTO;
 				success = false;
 			}
+			break;
+		}
+		case FCP_ERROR:{
+			errno = message->control;
+			success = false;
+			break;
+		}
+		default:{
+			success = false;
 			break;
 		}
 	}

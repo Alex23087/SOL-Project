@@ -2,8 +2,10 @@
 
 CachedFile* initCachedFile(const char* filename){
 	CachedFile* out = malloc(sizeof(CachedFile));
+	out->lock = malloc(sizeof(pthread_mutex_t));
 	if(pthread_mutex_init(out->lock, NULL)){
 		perror("Error while initializing lock for file");
+		free(out->lock);
 		free(out);
 		return NULL;
 	}
@@ -32,20 +34,37 @@ void addFile(FileList** list, CachedFile* file){
 }
 
 bool fileExists(FileCache* fileCache, const char* filename){
-	FileList* current = fileCache->files;
-	while(current != NULL){
-		if(strncmp(current->file->filename, filename, MAX_FILENAME_SIZE) == 0){
-			return true;
-		}
-		current = current->next;
-	}
-	return false;
+	return getFile(fileCache, filename) != NULL;
 }
 
-void createFile(FileCache* fileCache, const char* filename){
-	addFile(&(fileCache->files), initCachedFile(filename));
+CachedFile* createFile(FileCache* fileCache, const char* filename){
+	CachedFile* newFile = initCachedFile(filename);
+	addFile(&(fileCache->files), newFile);
+	return newFile;
 }
 
 void freeFileCache(FileCache** fileCache){
 	//TODO: Implement
+}
+
+CachedFile* getFile(FileCache* fileCache, const char* filename){
+	FileList* current = fileCache->files;
+	while(current != NULL){
+		if(strncmp(current->file->filename, filename, MAX_FILENAME_SIZE) == 0){
+			return current->file;
+		}
+		current = current->next;
+	}
+	return NULL;
+}
+
+CachedFile* getFileLockedByClient(FileCache* fileCache, int clientFd){
+	FileList* current = fileCache->files;
+	while(current != NULL){
+		if(current->file->lockedBy == clientFd){
+			return current->file;
+		}
+		current = current->next;
+	}
+	return NULL;
 }

@@ -147,9 +147,14 @@ int clientMain(int argc, char** argv){
 		ClientCommand* currentCommand = (ClientCommand*)queuePop(&commandQueue);
 		switch(currentCommand->op) {
 			case WriteFile:{
-				if(writeFile(currentCommand->parameter.stringValue, cacheMissFolderPath)){
-					perror("Error while writing file to server");
+				if(openFile(currentCommand->parameter.stringValue, O_CREATE | O_LOCK)){
+					perror("Error while opening file");
 					finished = true;
+				}else{
+					if(writeFile(currentCommand->parameter.stringValue, cacheMissFolderPath)){
+						perror("Error while writing file to server");
+						finished = true;
+					}
 				}
 				break;
 			}
