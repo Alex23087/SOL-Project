@@ -33,9 +33,9 @@ static Queue* incomingConnectionsQueue = NULL;
 static pthread_mutex_t incomingConnectionsLock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t incomingConnectionsCond = PTHREAD_COND_INITIALIZER;
 static bool workersShouldTerminate = false;
-static pthread_mutex_t clientListLock = PTHREAD_MUTEX_INITIALIZER;
+static pthread_rwlock_t clientListLock = PTHREAD_RWLOCK_INITIALIZER;
 static ClientList* clientList = NULL;
-static pthread_mutex_t fileCacheLock = PTHREAD_MUTEX_INITIALIZER; //Needed to add and remove files
+static pthread_rwlock_t fileCacheLock = PTHREAD_RWLOCK_INITIALIZER; //Needed to add and remove files
 static FileCache* fileCache = NULL;
 
 
@@ -123,6 +123,27 @@ static inline void pthread_join_error(pthread_t thread, const char* msg){
 	}
 }
 
+static inline void pthread_rwlock_rdlock_error(pthread_rwlock_t* lock, const char* msg){
+	if(pthread_rwlock_rdlock(lock)){
+		perror(msg);
+		//TODO: Handle error, maybe send message to master
+	}
+}
+
+static inline void pthread_rwlock_wrlock_error(pthread_rwlock_t* lock, const char* msg){
+	if(pthread_rwlock_wrlock(lock)){
+		perror(msg);
+		//TODO: Handle error, maybe send message to master
+	}
+}
+
+static inline void pthread_rwlock_unlock_error(pthread_rwlock_t* lock, const char* msg){
+	if(pthread_rwlock_unlock(lock)){
+		perror(msg);
+		//TODO: Handle error, maybe send message to master
+	}
+}
+
 static inline void w2mSend(char message, int32_t data){
 	char buffer[W2M_MESSAGE_LENGTH];
 	writen(w2mPipeDescriptors[1], makeW2MMessage(message, data, buffer), W2M_MESSAGE_LENGTH);
@@ -202,9 +223,9 @@ void* workerThread(void* arg){
 		
 		//Serve connection
 		printf("[Worker #%d]: Serving client on descriptor %d\n", workerID, fdToServe);
-		pthread_mutex_lock_error(&clientListLock, "Error while locking client list");
+		pthread_rwlock_rdlock_error(&clientListLock, "Error while locking client list");
 		ConnectionStatus status = clientListGetStatus(clientList, fdToServe);
-		pthread_mutex_unlock_error(&clientListLock, "Error while unlocking client list");
+		pthread_rwlock_unlock_error(&clientListLock, "Error while unlocking client list");
 		switch(status.op){
 			case Connected:{
 				char fcpBuffer[FCP_MESSAGE_LENGTH];
@@ -226,9 +247,9 @@ void* workerThread(void* arg){
 							
 							//Check if the client can write on this file
 							int error = 0;
-							pthread_mutex_lock_error(&fileCacheLock, "Error while locking fileCache");
+							pthread_rwlock_rdlock_error(&fileCacheLock, "Error while locking fileCache");
 							CachedFile* file = getFile(fileCache, fcpMessage->filename);
-							pthread_mutex_unlock_error(&fileCacheLock, "Error while unlocking fileCache");
+							pthread_rwlock_unlock_error(&fileCacheLock, "Error while unlocking fileCache");
 							if(file != NULL){
 								pthread_mutex_lock_error(file->lock, "Error while locking file");
 								if(file->lockedBy != fdToServe){
@@ -248,9 +269,9 @@ void* workerThread(void* arg){
 								newStatus.data.messageLength = fcpMessage->control;
 								newStatus.data.filename = malloc(FCP_MESSAGE_LENGTH - 5);
 								strncpy(newStatus.data.filename, fcpMessage->filename, FCP_MESSAGE_LENGTH - 5);
-								pthread_mutex_lock_error(&clientListLock, "Error while locking client list");
+								pthread_rwlock_wrlock_error(&clientListLock, "Error while locking client list");
 								clientListUpdateStatus(clientList, fdToServe, newStatus);
-								pthread_mutex_unlock_error(&clientListLock, "Error while unlocking client list");
+								pthread_rwlock_unlock_error(&clientListLock, "Error while unlocking client list");
 							
 								fcpSend(FCP_ACK, 0, NULL, fdToServe);
 							}else{
@@ -266,9 +287,9 @@ void* workerThread(void* arg){
 							printf("[Worker #%d]: Client %d issued op: %d (FCP_OPEN), flags: %d, filename: \"%s\"\n", workerID, fdToServe, fcpMessage->op, fcpMessage->control, fcpMessage->filename);
 							
 							int error = 0;
-							pthread_mutex_lock_error(&fileCacheLock, "Error while locking on file cache");
+							pthread_rwlock_rdlock_error(&fileCacheLock, "Error while locking on file cache");
 							bool exists = fileExists(fileCache, fcpMessage->filename);
-							pthread_mutex_unlock_error(&fileCacheLock, "Error while unlocking on file cache");
+							pthread_rwlock_unlock_error(&fileCacheLock, "Error while unlocking on file cache");
 							
 							if(exists && FCP_OPEN_FLAG_ISSET(fcpMessage->control, O_CREATE)){
 								error = EEXIST;
@@ -280,9 +301,9 @@ void* workerThread(void* arg){
 								printf("[Worker #%d]: Client %d tried to %s\n", workerID, fdToServe, error == EEXIST ? "create a file that already exists" : "open a file that doesn't exist");
 								fcpSend(FCP_ERROR, error, NULL, fdToServe);
 							}else{
-								pthread_mutex_lock_error(&fileCacheLock, "Error while locking on file cache");
+								pthread_rwlock_wrlock_error(&fileCacheLock, "Error while locking on file cache");
 								CachedFile* newFile = createFile(fileCache, fcpMessage->filename);
-								pthread_mutex_unlock_error(&fileCacheLock, "Error while unlocking on file cache");
+								pthread_rwlock_unlock_error(&fileCacheLock, "Error while unlocking on file cache");
 								if(FCP_OPEN_FLAG_ISSET(fcpMessage->control, O_LOCK)){
 									pthread_mutex_lock_error(newFile->lock, "Error while locking file");
 									newFile->lockedBy = fdToServe;
@@ -323,9 +344,9 @@ void* workerThread(void* arg){
 				
 					
 					//Save file
-					pthread_mutex_lock_error(&fileCacheLock, "Error while locking fileCache");
+					pthread_rwlock_rdlock_error(&fileCacheLock, "Error while locking fileCache");
 					CachedFile* file = getFile(fileCache, status.data.filename);
-					pthread_mutex_unlock_error(&fileCacheLock, "Error while unlocking fileCache");
+					pthread_rwlock_unlock_error(&fileCacheLock, "Error while unlocking fileCache");
 					if(file != NULL){
 						pthread_mutex_lock_error(file->lock, "Error while locking file");
 						if(file->lockedBy != fdToServe){
@@ -334,7 +355,7 @@ void* workerThread(void* arg){
 						}else{
 							//Everything is ok, file can be written
 							free(file->contents);
-							file->contents = buffer;
+							storeFile(file, buffer);
 						}
 						pthread_mutex_unlock_error(file->lock, "Error while unlocking file");
 					}else{
@@ -348,9 +369,9 @@ void* workerThread(void* arg){
 					newStatus.op = Connected;
 					newStatus.data.messageLength = 0;
 					newStatus.data.filename = NULL;
-					pthread_mutex_lock_error(&clientListLock, "Error while locking client list");
+					pthread_rwlock_wrlock_error(&clientListLock, "Error while locking client list");
 					clientListUpdateStatus(clientList, fdToServe, newStatus);
-					pthread_mutex_unlock_error(&clientListLock, "Error while unlocking client list");
+					pthread_rwlock_unlock_error(&clientListLock, "Error while unlocking client list");
 					
 					
 					//Send messages to client and to master
@@ -582,9 +603,9 @@ int onNewConnectionReceived(int serverSocketDescriptor, fd_set* selectFdSet, int
 #endif
 	addToFdSetUpdatingMax(newClientDescriptor, selectFdSet, maxFd);
 	
-	pthread_mutex_lock_error(&clientListLock, "Error while locking client list");
+	pthread_rwlock_wrlock_error(&clientListLock, "Error while locking client list");
 	clientListAdd(&clientList, newClientDescriptor);
-	pthread_mutex_unlock_error(&clientListLock, "Error while unlocking client list");
+	pthread_rwlock_unlock_error(&clientListLock, "Error while unlocking client list");
 #ifdef DEBUG
 	printf("[Master]: Client %d added to list of connected clients\n", newClientDescriptor);
 #endif
@@ -634,17 +655,17 @@ int onW2MMessageReceived(int serverSocketDescriptor, fd_set* selectFdSet, int* m
 		case W2M_CLIENT_DISCONNECTED:{
 			int clientFd = getIntFromW2MMessage(buffer);
 			
-			pthread_mutex_lock_error(&clientListLock, "Error while locking client list");
+			pthread_rwlock_wrlock_error(&clientListLock, "Error while locking client list");
 			clientListRemove(&clientList, clientFd);
-			pthread_mutex_unlock_error(&clientListLock, "Error while unlocking client list");
+			pthread_rwlock_unlock_error(&clientListLock, "Error while unlocking client list");
 #ifdef DEBUG
 			printf("[Master]: Client %d removed from list of connected clients\n",clientFd);
 #endif
 			
 			//Unlock files locked by the client
-			pthread_mutex_lock_error(&fileCacheLock, "Error while locking file cache");
+			pthread_rwlock_wrlock_error(&fileCacheLock, "Error while locking file cache");
 			unlockAllFilesLockedByClient(fileCache, clientFd);
-			pthread_mutex_unlock_error(&fileCacheLock, "Error while unlocking file cache");
+			pthread_rwlock_unlock_error(&fileCacheLock, "Error while unlocking file cache");
 			break;
 		}
 		//TODO: Handle other cases

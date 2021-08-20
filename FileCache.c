@@ -68,3 +68,9 @@ CachedFile* getFileLockedByClient(FileCache* fileCache, int clientFd){
 	}
 	return NULL;
 }
+
+size_t storeFile(CachedFile* file, char* contents){
+	//TODO: Implement compression
+	file->contents = contents;
+	return sizeof(contents);
+}

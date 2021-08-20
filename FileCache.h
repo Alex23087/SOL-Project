@@ -48,4 +48,6 @@ CachedFile* getFile(FileCache* fileCache, const char* filename);
 
 CachedFile* getFileLockedByClient(FileCache* fileCache, int clientFd);
 
+size_t storeFile(CachedFile* file, char* contents);
+
 #endif //SOL_PROJECT_FILECACHE_H
