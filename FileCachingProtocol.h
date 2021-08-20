@@ -4,6 +4,7 @@
 #define FCP_MESSAGE_LENGTH 256
 
 #include <stdint.h>
+#include "defines.h"
 
 typedef enum ClientOperation{
 	Connected,
@@ -24,9 +25,15 @@ typedef struct ConnectionStatus{
 	ConnectionStatusAdditionalData data;
 }ConnectionStatus;
 
+typedef struct OpenFilesList{
+	char* filename;
+	struct OpenFilesList* next;
+} OpenFilesList;
+
 typedef struct ClientList{
 	int descriptor;
 	ConnectionStatus status;
+	OpenFilesList* openFiles;
 	struct ClientList* next;
 } ClientList;
 
@@ -75,5 +82,18 @@ void clientListRemove(ClientList** list, int descriptor);
 void clientListUpdateStatus(ClientList* list, int descriptor, ConnectionStatus status);
 
 ConnectionStatus clientListGetStatus(ClientList* list, int descriptor);
+/*
+OpenFilesList* getFileListForDescriptor(ClientList* list, int descriptor);
+
+bool isFileOpen(OpenFilesList* list, const char* filename);
+
+void addOpenFile(OpenFilesList** list, const char* filename);
+*/
+
+void setFileOpened(ClientList* list, int descriptor, const char* filename);
+
+void setFileClosed(ClientList* list, int descriptor, const char* filename);
+
+void closeAllFiles(ClientList* list, int descriptor);
 
 #endif //SOL_PROJECT_FILECACHINGPROTOCOL_H

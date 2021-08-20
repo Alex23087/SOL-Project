@@ -70,9 +70,11 @@ int openConnection(const char* sockname, int msec, const struct timespec abstime
 		//Adding the connection to the key value array of open connections
 		ArgsList* newConnection = initArgsListNode();
 		newConnection->type = Long;
-		newConnection->name = (char*)sockname;
+		newConnection->name = malloc(strlen(sockname) + 1);
+		strcpy(newConnection->name, sockname);
 		newConnection->data = (void*)((long)clientSocketDescriptor);
 		newConnection->next = openConnections;
+		openConnections = newConnection;
 		
 		activeConnectionFD = clientSocketDescriptor;
 		return 0;
@@ -92,11 +94,12 @@ int closeConnection(const char* sockname){
 		errno = ENOTCONN;
 		return -1;
 	}else{
-		int fd = (int)(connection->data);
+		int fd = (int)(long)(connection->data);
 		if(close(fd)){
 			//Error while closing connection, errno has been set by close()
 			return -1;
 		}else{
+			freeArgsListNode(connection);
 			return 0;
 		}
 	}

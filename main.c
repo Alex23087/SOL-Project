@@ -17,7 +17,7 @@ int main() {
     */
     setbuf(stdout, NULL); //Set print buffer to 0 because of problems with the IDE
     
-    if(1){
+    if(0){
     	const int len = 2;
     	char* argv[len];
     	argv[0] = "server";

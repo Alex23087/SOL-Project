@@ -163,7 +163,6 @@ int clientMain(int argc, char** argv){
 	}
 	
 	
-	sleep(1);
 	closeConnection(socketPath);
 	
 	return 0;

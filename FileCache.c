@@ -43,8 +43,26 @@ CachedFile* createFile(FileCache* fileCache, const char* filename){
 	return newFile;
 }
 
+void freeCachedFile(CachedFile* file){
+	free(file->contents);
+	free(file->filename);
+	free(file->lock);
+	free(file);
+}
+
+void freeFileList(FileList** fileList){
+	if(*fileList != NULL){
+		freeFileList(&((*fileList)->next));
+		freeCachedFile((*fileList)->file);
+		free(*fileList);
+		*fileList = NULL;
+	}
+}
+
 void freeFileCache(FileCache** fileCache){
-	//TODO: Implement
+	freeFileList(&((*fileCache)->files));
+	free(*fileCache);
+	*fileCache = NULL;
 }
 
 CachedFile* getFile(FileCache* fileCache, const char* filename){

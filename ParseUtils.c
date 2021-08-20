@@ -39,10 +39,6 @@ ArgsList* argsListNodeFromString(const char* input){
 	strncpy(name, input, i);
 	name[i] = '\0';
 	
-#ifdef DEBUG
-	printf("name: %s\n", name);
-#endif
-	
 	while(isspace(input[i])){
 		i++;
 	}
@@ -79,9 +75,6 @@ ArgsList* argsListNodeFromString(const char* input){
 			value = malloc(sizeof(char) * (length + 1));
 			strncpy(value, &input[start], length);
 			((char*)value)[length] = '\0';
-#ifdef DEBUG
-			printf("value: %s\n", (char*)value);
-#endif
 			break;
 		case Long:
 			errno = 0;
@@ -91,9 +84,6 @@ ArgsList* argsListNodeFromString(const char* input){
 				//TODO: Handle error
 				perror("Invalid long format in input\n");
 			}
-#ifdef DEBUG
-			printf("value: %ld\n", *(long*)value);
-#endif
 			break;
 	}
 	
@@ -138,7 +128,8 @@ ArgsList* readConfigFile(const char* filename){
         //TODO: Handle error
 	    perror("File couldn't be read");
     }
-    
+	
+	fclose(file);
     free(buffer);
     return head;
 }
@@ -148,7 +139,9 @@ void freeArgsListNode(ArgsList* node){
 		freeArgsListNode(node->next);
 		node->next = NULL;
 	}
-	free(node->data);
+	if(node->type == String){
+		free(node->data);
+	}
 	free(node->name);
 	free(node);
 	node = NULL;

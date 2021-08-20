@@ -162,6 +162,7 @@ void unlockAllFilesLockedByClient(FileCache* fileCache, int clientFd){
 void* signalHandlerThread(void* arg){
 	//Masking the signals we'll listen to
 	sigset_t listenSet;
+	sigemptyset(&listenSet);
 	sigaddset(&listenSet, SIGINT);
 	sigaddset(&listenSet, SIGQUIT);
 	sigaddset(&listenSet, SIGHUP);
@@ -291,9 +292,10 @@ void* workerThread(void* arg){
 							bool exists = fileExists(fileCache, fcpMessage->filename);
 							pthread_rwlock_unlock_error(&fileCacheLock, "Error while unlocking on file cache");
 							
-							if(exists && FCP_OPEN_FLAG_ISSET(fcpMessage->control, O_CREATE)){
+							bool createIsSet = FCP_OPEN_FLAG_ISSET(fcpMessage->control, O_CREATE);
+							if(exists && createIsSet){
 								error = EEXIST;
-							}else if(!exists && !FCP_OPEN_FLAG_ISSET(fcpMessage->control, O_CREATE)){
+							}else if(!exists && !createIsSet){
 								error = ENOENT;
 							}
 							
@@ -301,14 +303,25 @@ void* workerThread(void* arg){
 								printf("[Worker #%d]: Client %d tried to %s\n", workerID, fdToServe, error == EEXIST ? "create a file that already exists" : "open a file that doesn't exist");
 								fcpSend(FCP_ERROR, error, NULL, fdToServe);
 							}else{
+								CachedFile* file;
 								pthread_rwlock_wrlock_error(&fileCacheLock, "Error while locking on file cache");
-								CachedFile* newFile = createFile(fileCache, fcpMessage->filename);
-								pthread_rwlock_unlock_error(&fileCacheLock, "Error while unlocking on file cache");
-								if(FCP_OPEN_FLAG_ISSET(fcpMessage->control, O_LOCK)){
-									pthread_mutex_lock_error(newFile->lock, "Error while locking file");
-									newFile->lockedBy = fdToServe;
-									pthread_mutex_unlock_error(newFile->lock, "Error while unlocking file");
+								if(createIsSet){
+									file = createFile(fileCache, fcpMessage->filename);
+								}else{
+									file = getFile(fileCache, fcpMessage->filename);
 								}
+								pthread_rwlock_unlock_error(&fileCacheLock, "Error while unlocking on file cache");
+								
+								if(FCP_OPEN_FLAG_ISSET(fcpMessage->control, O_LOCK)){
+									pthread_mutex_lock_error(file->lock, "Error while locking file");
+									file->lockedBy = fdToServe;
+									pthread_mutex_unlock_error(file->lock, "Error while unlocking file");
+								}
+								
+								pthread_rwlock_wrlock_error(&fileCacheLock, "Error while locking on file cache");
+								setFileOpened(clientList, fdToServe, fcpMessage->filename);
+								pthread_rwlock_unlock_error(&fileCacheLock, "Error while unlocking on file cache");
+								
 								printf("[Worker #%d]: Client %d successfully opened the file\n", workerID, fdToServe);
 								fcpSend(FCP_ACK, 0, NULL, fdToServe);
 							}
