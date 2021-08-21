@@ -166,7 +166,7 @@ int clientMain(int argc, char** argv){
 				break;
 			}
 			case ReadFile:{
-				if(openFile(currentCommand->parameter.stringValue, O_LOCK)){
+				/*if(openFile(currentCommand->parameter.stringValue, O_LOCK)){
 					perror("Error while opening file");
 					finished = true;
 				}else{
@@ -182,6 +182,33 @@ int clientMain(int argc, char** argv){
 						}
 					}
 					free(fileBuffer);
+				}*/
+				if(openFile(currentCommand->parameter.stringValue, 0)){
+					perror("Error while opening file");
+					finished = true;
+				}else{
+					if(lockFile(currentCommand->parameter.stringValue)){
+						perror("Error while locking file");
+						finished = true;
+					}else{
+						char* fileBuffer;
+						size_t fileSize = 0;
+						if(readFile(currentCommand->parameter.stringValue, (void**)(&fileBuffer), &fileSize)){
+							perror("Error while reading file from server");
+							finished = true;
+						}else{
+							if(unlockFile(currentCommand->parameter.stringValue)){
+								perror("Error while unlocking file");
+								finished = true;
+							}else{
+								if(closeFile(currentCommand->parameter.stringValue)){
+									perror("Error while closing file");
+									finished = true;
+								}
+							}
+						}
+						free(fileBuffer);
+					}
 				}
 			}
 		}

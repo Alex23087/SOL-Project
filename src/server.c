@@ -220,6 +220,27 @@ void updateClientStatusL(ClientOperation op, int messageLength, const char* file
 	pthread_rwlock_unlock_error(&clientListLock, "Error while unlocking client list");
 }
 
+bool fileExistsL(const char* filename){
+	pthread_rwlock_rdlock_error(&fileCacheLock, "Error while locking on file cache");
+	bool exists = fileExists(fileCache, filename);
+	pthread_rwlock_unlock_error(&fileCacheLock, "Error while unlocking on file cache");
+	return exists;
+}
+
+bool isFileOpenedByClientL(const char* filename, int descriptor){
+	pthread_rwlock_rdlock_error(&clientListLock, "Error while locking on client list");
+	bool isOpen = isFileOpenedByClient(clientList, filename, descriptor);
+	pthread_rwlock_unlock_error(&clientListLock, "Error while unlocking on client list");
+	return isOpen;
+}
+
+CachedFile* getFileL(const char *filename) {
+	pthread_rwlock_rdlock_error(&fileCacheLock, "Error while locking file cache");
+	CachedFile* file = getFile(fileCache, filename);
+	pthread_rwlock_unlock_error(&fileCacheLock, "Error while unlocking file cache");
+	return file;
+}
+
 void* workerThread(void* arg){
 	int workerID = (int)(long)arg;
 	printf("[Worker #%d]: Up and running\n", workerID);
@@ -263,14 +284,10 @@ void* workerThread(void* arg){
 							
 							//Check if the client can write on this file
 							int error = 0;
-							pthread_rwlock_rdlock_error(&fileCacheLock, "Error while locking fileCache");
-							CachedFile* file = getFile(fileCache, fcpMessage->filename);
-							pthread_rwlock_unlock_error(&fileCacheLock, "Error while unlocking fileCache");
+							CachedFile* file = getFileL(fcpMessage->filename);
 							
 							if(file != NULL){
-								pthread_rwlock_rdlock_error(&clientListLock, "Error while locking on client list");
-								bool isOpen = isFileOpenedByClient(clientList, fcpMessage->filename, fdToServe);
-								pthread_rwlock_unlock_error(&clientListLock, "Error while unlocking on client list");
+								bool isOpen = isFileOpenedByClientL(fcpMessage->filename, fdToServe);
 								
 								if(isOpen){
 									pthread_mutex_lock_error(file->lock, "Error while locking file");
@@ -306,9 +323,7 @@ void* workerThread(void* arg){
 							printf("[Worker #%d]: Client %d issued op: %d (FCP_OPEN), flags: %d, filename: \"%s\"\n", workerID, fdToServe, fcpMessage->op, fcpMessage->control, fcpMessage->filename);
 							
 							int error = 0;
-							pthread_rwlock_rdlock_error(&fileCacheLock, "Error while locking on file cache");
-							bool exists = fileExists(fileCache, fcpMessage->filename);
-							pthread_rwlock_unlock_error(&fileCacheLock, "Error while unlocking on file cache");
+							bool exists = fileExistsL(fcpMessage->filename);
 							
 							bool createIsSet = FCP_OPEN_FLAG_ISSET(fcpMessage->control, O_CREATE);
 							if(exists && createIsSet){
@@ -353,14 +368,10 @@ void* workerThread(void* arg){
 							
 							//Check if the client can read on this file
 							int error = 0;
-							pthread_rwlock_rdlock_error(&fileCacheLock, "Error while locking fileCache");
-							CachedFile* file = getFile(fileCache, fcpMessage->filename);
-							pthread_rwlock_unlock_error(&fileCacheLock, "Error while unlocking fileCache");
+							CachedFile* file = getFileL(fcpMessage->filename);
 							
 							if(file != NULL){
-								pthread_rwlock_rdlock_error(&clientListLock, "Error while locking on client list");
-								bool isOpen = isFileOpenedByClient(clientList, fcpMessage->filename, fdToServe);
-								pthread_rwlock_unlock_error(&clientListLock, "Error while unlocking on client list");
+								bool isOpen = isFileOpenedByClientL(fcpMessage->filename, fdToServe);
 								
 								if(isOpen){
 									pthread_mutex_lock_error(file->lock, "Error while locking file");
@@ -400,14 +411,10 @@ void* workerThread(void* arg){
 							printf("[Worker #%d]: Client %d issued op: %d (FCP_CLOSE), filename: \"%s\"\n", workerID, fdToServe, fcpMessage->op, fcpMessage->filename);
 							
 							int error = 0;
-							pthread_rwlock_rdlock_error(&fileCacheLock, "Error while locking on file cache");
-							bool exists = fileExists(fileCache, fcpMessage->filename);
-							pthread_rwlock_unlock_error(&fileCacheLock, "Error while unlocking on file cache");
+							bool exists = fileExistsL(fcpMessage->filename);
 							
 							if(exists){
-								pthread_rwlock_rdlock_error(&clientListLock, "Error while locking on client list");
-								bool isOpen = isFileOpenedByClient(clientList, fcpMessage->filename, fdToServe);
-								pthread_rwlock_unlock_error(&clientListLock, "Error while unlocking on client list");
+								bool isOpen = isFileOpenedByClientL(fcpMessage->filename, fdToServe);
 								
 								if(isOpen){
 									pthread_rwlock_rdlock_error(&clientListLock, "Error while locking on client list");
@@ -430,6 +437,79 @@ void* workerThread(void* arg){
 								fcpSend(FCP_ERROR, error, NULL, fdToServe);
 								w2mSend(W2M_CLIENT_SERVED, fdToServe);
 							}
+							break;
+						}
+						case FCP_LOCK:{
+							//TODO: Because of how the lock is implemented (with a condition variable)
+							// several lock requests can effectively lock up the server. Needs to be solved.
+							
+							//Client has issued a lock request: check legitimacy of the request, send error or lock and send ack, warn master
+							printf("[Worker #%d]: Client %d issued op: %d (FCP_LOCK), filename: \"%s\"\n", workerID, fdToServe, fcpMessage->op, fcpMessage->filename);
+							
+							int error = 0;
+							bool exists = fileExistsL(fcpMessage->filename);
+							
+							if(!exists){
+								error = ENOENT;
+								printf("[Worker #%d]: Client %d tried to lock a file that doesn't exist\n", workerID, fdToServe);
+								fcpSend(FCP_ERROR, error, NULL, fdToServe);
+							}else{
+								bool isOpen = isFileOpenedByClientL(fcpMessage->filename, fdToServe);
+								if(isOpen){
+									CachedFile* file = getFileL(fcpMessage->filename);
+								
+									pthread_mutex_lock_error(file->lock, "Error while locking file");
+									while(file->lockedBy != -1 && file->lockedBy != fdToServe){
+										pthread_cond_wait_error(file->clientLockWakeupCondition, file->lock, "Error while waiting on file lock condition");
+									}
+									file -> lockedBy = fdToServe;
+									pthread_mutex_unlock_error(file->lock, "Error while unlocking file");
+								
+									printf("[Worker #%d]: Client %d successfully locked the file\n", workerID, fdToServe);
+									fcpSend(FCP_ACK, 0, NULL, fdToServe);
+								}else{
+									error = EBADF;
+									printf("[Worker #%d]: Client %d tried to lock a file that it didn't open\n", workerID, fdToServe);
+									fcpSend(FCP_ERROR, error, NULL, fdToServe);
+								}
+							}
+							
+							w2mSend(W2M_CLIENT_SERVED, fdToServe);
+							break;
+						}
+						case FCP_UNLOCK:{
+							//Client has issued an unlock request: check legitimacy of the request, send error or unlock and send ack, warn master
+							printf("[Worker #%d]: Client %d issued op: %d (FCP_UNLOCK), filename: \"%s\"\n", workerID, fdToServe, fcpMessage->op, fcpMessage->filename);
+							
+							int error = 0;
+							bool exists = fileExistsL(fcpMessage->filename);
+							
+							if(!exists){
+								error = ENOENT;
+								printf("[Worker #%d]: Client %d tried to unlock a file that doesn't exist\n", workerID, fdToServe);
+								fcpSend(FCP_ERROR, error, NULL, fdToServe);
+							}else{
+								CachedFile* file = getFileL(fcpMessage->filename);
+								
+								pthread_mutex_lock_error(file->lock, "Error while locking file");
+								if(file->lockedBy == fdToServe){
+									file -> lockedBy = -1;
+									pthread_cond_signal_error(file->clientLockWakeupCondition, "Error while signaling on conditional variable for file");
+								}else{
+									error = EPERM;
+								}
+								pthread_mutex_unlock_error(file->lock, "Error while unlocking file");
+								
+								if(error == 0){
+									printf("[Worker #%d]: Client %d successfully unlocked the file\n", workerID, fdToServe);
+									fcpSend(FCP_ACK, 0, NULL, fdToServe);
+								}else{
+									printf("[Worker #%d]: Client %d tried to unlock a file it didn't lock\n", workerID, fdToServe);
+									fcpSend(FCP_ERROR, error, NULL, fdToServe);
+								}
+							}
+							
+							w2mSend(W2M_CLIENT_SERVED, fdToServe);
 							break;
 						}
 						default:{
@@ -461,9 +541,7 @@ void* workerThread(void* arg){
 				
 					
 					//Save file
-					pthread_rwlock_rdlock_error(&fileCacheLock, "Error while locking fileCache");
-					CachedFile* file = getFile(fileCache, status.data.filename);
-					pthread_rwlock_unlock_error(&fileCacheLock, "Error while unlocking fileCache");
+					CachedFile* file = getFileL(status.data.filename);
 					if(file != NULL){
 						pthread_mutex_lock_error(file->lock, "Error while locking file");
 						if(file->lockedBy != fdToServe){
@@ -520,9 +598,9 @@ void* workerThread(void* arg){
 							//Send file
 							char* fileBuffer = NULL;
 							size_t fileSize = 0;
-							pthread_rwlock_rdlock_error(&fileCacheLock, "Error while locking file cache");
-							CachedFile* file = getFile(fileCache, status.data.filename);
-							pthread_rwlock_unlock_error(&fileCacheLock, "Error while unlocking file cache");
+							
+							CachedFile *file = getFileL(status.data.filename);
+							
 							pthread_mutex_lock_error(file->lock, "Error while locking file");
 							readCachedFile(file, &fileBuffer, &fileSize);
 							pthread_mutex_unlock_error(file->lock, "Error while unlocking file");
