@@ -146,6 +146,55 @@ int openFile(const char* pathname, int flags){
 	return success ? 0 : -1;
 }
 
+int readFile(const char* pathname, void** buf, size_t* size){
+	if(activeConnectionFD == -1){
+		//Function called without an active connection
+		errno = ENOTCONN;
+		return -1;
+	}
+	
+	if(strlen(pathname) > FCP_MESSAGE_LENGTH - 5){
+		errno = ENAMETOOLONG;
+		return -1;
+	}
+	
+	printf("Sending read request to server\n");
+	fcpSend(FCP_READ, 0, (char*)pathname, activeConnectionFD);
+	printf("Read request sent\n");
+	
+	
+	bool success = true;
+	char fcpBuffer[FCP_MESSAGE_LENGTH];
+	readn(activeConnectionFD, fcpBuffer, FCP_MESSAGE_LENGTH);
+	FCPMessage* message = fcpMessageFromBuffer(fcpBuffer);
+	
+	switch(message->op){
+		case FCP_WRITE:{
+			//Server will send the file
+			*size = message->control;
+			fcpSend(FCP_ACK, 0, NULL, activeConnectionFD);
+			*buf = malloc(*size);
+			readn(activeConnectionFD, *buf, *size);
+			break;
+		}
+		case FCP_ERROR:{
+			//Error while reading the file
+			success = false;
+			errno = message->control;
+			break;
+		}
+		default:{
+			//Invalid message received from server
+			success = false;
+			errno = EPROTO;
+			break;
+		}
+	}
+	
+	free(message);
+	return success ? 0 : -1;
+}
+
 int writeFile(const char* pathname, const char* dirname){
 	if(activeConnectionFD == -1){
 		//Function called without an active connection
@@ -174,55 +223,66 @@ int writeFile(const char* pathname, const char* dirname){
 	fcpSend(FCP_WRITE, (int)fileSize, (char*)pathname, activeConnectionFD);
 	printf("Write request sent\n");
 	
-	char fcpBuffer[FCP_MESSAGE_LENGTH];
-	readn(activeConnectionFD, fcpBuffer, FCP_MESSAGE_LENGTH);
-	FCPMessage* message = fcpMessageFromBuffer(fcpBuffer);
-	
+	bool receivingCacheMissFiles = false;
 	bool success = true;
-	switch(message->op){
-		case FCP_ACK:{
-			printf("Server has sent ack back, starting transfer\n");
-			char* fileBuffer = malloc(fileSize);
-			readn(fileDescriptor, fileBuffer, fileSize);
-			writen(activeConnectionFD, fileBuffer, fileSize);
-			free(fileBuffer);
-			printf("File transfer complete, waiting for ack\n");
-			fcpBuffer[4] = 0;
-			if(readn(activeConnectionFD, fcpBuffer, FCP_MESSAGE_LENGTH) == FCP_MESSAGE_LENGTH){
-				free(message);
-				message = fcpMessageFromBuffer(fcpBuffer);
-			
-				switch(message->op) {
-					case FCP_ACK:{
-						printf("Received ack from server, operation completed successfully\n");
-						break;
-					}
-					default:{
-						printf("Server sent an invalid reply, operation failed\n");
-						errno = EPROTO; //EBADMSG EPROTO EMSGSIZE EILSEQ
-						success = false;
-						break;
-					}
-				}
-			}else{
-				printf("Server sent an invalid reply, operation failed\n");
-				errno = EPROTO;
-				success = false;
-			}
-			break;
-		}
-		case FCP_ERROR:{
-			errno = message->control;
-			success = false;
-			break;
-		}
-		default:{
-			success = false;
-			break;
-		}
-	}
+	char fcpBuffer[FCP_MESSAGE_LENGTH];
+	do{
+		readn(activeConnectionFD, fcpBuffer, FCP_MESSAGE_LENGTH);
+		FCPMessage* message = fcpMessageFromBuffer(fcpBuffer);
 	
-	free(message);
+		switch(message->op){
+			case FCP_ACK:{
+				receivingCacheMissFiles = false;
+				printf("Server has sent ack back, starting transfer\n");
+				char* fileBuffer = malloc(fileSize);
+				readn(fileDescriptor, fileBuffer, fileSize);
+				writen(activeConnectionFD, fileBuffer, fileSize);
+				free(fileBuffer);
+				printf("File transfer complete, waiting for ack\n");
+				fcpBuffer[4] = 0;
+				if(readn(activeConnectionFD, fcpBuffer, FCP_MESSAGE_LENGTH) == FCP_MESSAGE_LENGTH){
+					free(message);
+					message = fcpMessageFromBuffer(fcpBuffer);
+			
+					switch(message->op) {
+						case FCP_ACK:{
+							printf("Received ack from server, operation completed successfully\n");
+							break;
+						}
+						default:{
+							printf("Server sent an invalid reply, operation failed\n");
+							errno = EPROTO; //EBADMSG EPROTO EMSGSIZE EILSEQ
+							success = false;
+							break;
+						}
+					}
+				}else{
+					printf("Server sent an invalid reply, operation failed\n");
+					errno = EPROTO;
+					success = false;
+				}
+				break;
+			}
+			case FCP_WRITE:{
+				//TODO: Receive files
+				receivingCacheMissFiles = true;
+				break;
+			}
+			case FCP_ERROR:{
+				errno = message->control;
+				success = false;
+				break;
+			}
+			default:{
+				success = false;
+				errno = EPROTO;
+				break;
+			}
+		}
+	
+		free(message);
+	}while(success && receivingCacheMissFiles);
+	
 	return success ? 0 : -1;
 }
 

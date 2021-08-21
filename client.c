@@ -8,7 +8,8 @@
 #include "queue.h"
 
 typedef enum ClientOperation{
-	WriteFile
+	WriteFile,
+	ReadFile
 } ClientOperation;
 
 typedef union ClientParameter{
@@ -61,7 +62,6 @@ int clientMain(int argc, char** argv){
 				ClientCommand* cmd = malloc(sizeof(ClientCommand));
 				cmd->op = WriteFile;
 				cmd->parameter.stringValue = optarg;
-				//TODO: Check if passing optarg is safe or if a strncpy is necessary
 				queuePush(&commandQueue, (void*)cmd);
 				break;
 			}
@@ -71,7 +71,10 @@ int clientMain(int argc, char** argv){
 			}
 			case 'r':{
 				issuedReadOperation = true;
-				//TODO: Implement this
+				ClientCommand* cmd = malloc(sizeof(ClientCommand));
+				cmd->op = ReadFile;
+				cmd->parameter.stringValue = optarg;
+				queuePush(&commandQueue, (void*)cmd);
 				break;
 			}
 			case 'R':{
@@ -161,6 +164,25 @@ int clientMain(int argc, char** argv){
 					}
 				}
 				break;
+			}
+			case ReadFile:{
+				if(openFile(currentCommand->parameter.stringValue, O_LOCK)){
+					perror("Error while opening file");
+					finished = true;
+				}else{
+					char* fileBuffer;
+					size_t fileSize = 0;
+					if(readFile(currentCommand->parameter.stringValue, (void**)(&fileBuffer), &fileSize)){
+						perror("Error while reading file from server");
+						finished = true;
+					}else{
+						if(closeFile(currentCommand->parameter.stringValue)){
+							perror("Error while closing file");
+							finished = true;
+						}
+					}
+					free(fileBuffer);
+				}
 			}
 		}
 		free(currentCommand);

@@ -13,6 +13,7 @@ CachedFile* initCachedFile(const char* filename){
 	out->filename = malloc(len + 1);
 	strncpy(out->filename, filename, len);
 	out->filename[len] = '\0';
+	out->size = 0;
 	out->contents = NULL;
 	out->lockedBy = -1;
 	return out;
@@ -87,8 +88,22 @@ CachedFile* getFileLockedByClient(FileCache* fileCache, int clientFd){
 	return NULL;
 }
 
-size_t storeFile(CachedFile* file, char* contents){
+size_t storeFile(CachedFile* file, char* contents, size_t size){
 	//TODO: Implement compression
+	file->size = size;
 	file->contents = contents;
 	return sizeof(contents);
+}
+
+size_t getFileSize(CachedFile* file){
+	//TODO: Implement compression
+	return file->size;
+}
+
+char* readCachedFile(CachedFile* file, char** buffer, size_t* size){
+	//TODO: Implement compression
+	*size = getFileSize(file);
+	*buffer = malloc(*size);
+	memcpy(*buffer, file->contents, *size); //Not needed if the file is not compressed, added for future extension
+	return *buffer;
 }

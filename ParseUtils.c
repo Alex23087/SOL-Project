@@ -119,9 +119,6 @@ ArgsList* readConfigFile(const char* filename){
                     newHead->next = head;
                     head = newHead;
                 }
-#ifdef DEBUG
-                printf("%s", buffer);
-#endif
             }
         }
     }else{

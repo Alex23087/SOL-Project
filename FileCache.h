@@ -12,6 +12,7 @@
 typedef struct CachedFile{
 	char* filename;
 	char* contents;
+	size_t size;
 	int lockedBy;
 	pthread_mutex_t* lock;
 } CachedFile;
@@ -48,6 +49,10 @@ CachedFile* getFile(FileCache* fileCache, const char* filename);
 
 CachedFile* getFileLockedByClient(FileCache* fileCache, int clientFd);
 
-size_t storeFile(CachedFile* file, char* contents);
+size_t storeFile(CachedFile* file, char* contents, size_t size);
+
+size_t getFileSize(CachedFile* file);
+
+char* readCachedFile(CachedFile* file, char** buffer, size_t* size);
 
 #endif //SOL_PROJECT_FILECACHE_H
