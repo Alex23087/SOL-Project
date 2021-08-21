@@ -234,11 +234,20 @@ bool isFileOpenedByClientL(const char* filename, int descriptor){
 	return isOpen;
 }
 
-CachedFile* getFileL(const char *filename) {
+CachedFile* getFileL(const char* filename) {
 	pthread_rwlock_rdlock_error(&fileCacheLock, "Error while locking file cache");
 	CachedFile* file = getFile(fileCache, filename);
 	pthread_rwlock_unlock_error(&fileCacheLock, "Error while unlocking file cache");
 	return file;
+}
+
+void serverRemoveFileL(const char* filename){
+	pthread_rwlock_wrlock_error(&clientListLock, "Error while locking on client list");
+	closeFileForEveryone(clientList, filename);
+	pthread_rwlock_unlock_error(&clientListLock, "Error while unlocking on client list");
+	pthread_rwlock_wrlock_error(&fileCacheLock, "Error while locking on file cache");
+	removeFileFromCache(fileCache, filename);
+	pthread_rwlock_unlock_error(&fileCacheLock, "Error while unlocking on file cache");
 }
 
 void* workerThread(void* arg){
@@ -506,6 +515,46 @@ void* workerThread(void* arg){
 								}else{
 									printf("[Worker #%d]: Client %d tried to unlock a file it didn't lock\n", workerID, fdToServe);
 									fcpSend(FCP_ERROR, error, NULL, fdToServe);
+								}
+							}
+							
+							w2mSend(W2M_CLIENT_SERVED, fdToServe);
+							break;
+						}
+						case FCP_REMOVE:{
+							//Client has issued a remove request: check legitimacy of the request, send error or remove and send ack, warn master
+							printf("[Worker #%d]: Client %d issued op: %d (FCP_REMOVE),  filename: \"%s\"\n", workerID, fdToServe, fcpMessage->op, fcpMessage->filename);
+							
+							int error = 0;
+							bool exists = fileExistsL(fcpMessage->filename);
+							
+							if(!exists){
+								//File doesn't exist, send error to client
+								printf("[Worker #%d]: Client %d tried to remove a file that doesn't exist\n", workerID, fdToServe);
+								error = ENOENT;
+								fcpSend(FCP_ERROR, error, NULL, fdToServe);
+							}else{
+								if(!isFileOpenedByClientL(fcpMessage->filename, fdToServe)){
+									//File is not opened by the client, send error message
+									printf("[Worker #%d]: Client %d tried to remove a file that it didn't open\n", workerID, fdToServe);
+									error = EBADF;
+									fcpSend(FCP_ERROR, error, NULL, fdToServe);
+								}else{
+									CachedFile* file = getFileL(fcpMessage->filename);
+									pthread_mutex_lock_error(file->lock, "Error while locking file");
+									bool isFileLockedByClient = ((file->lockedBy) == fdToServe);
+									pthread_mutex_unlock_error(file->lock, "Error while unlocking file");
+									
+									if(isFileLockedByClient){
+										serverRemoveFileL(fcpMessage->filename);
+										printf("[Worker #%d]: Client %d successfully removed file with filename: %s\n", workerID, fdToServe, fcpMessage->filename);
+										fcpSend(FCP_ACK, 0, NULL, fdToServe);
+									}else{
+										//File is not locked by the client, return error
+										printf("[Worker #%d]: Client %d tried to remove a file it didn't hold a lock on\n", workerID, fdToServe);
+										error = EPERM;
+										fcpSend(FCP_ERROR, error, NULL, fdToServe);
+									}
 								}
 							}
 							

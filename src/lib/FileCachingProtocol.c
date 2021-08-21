@@ -195,3 +195,11 @@ void closeAllFiles(ClientList* list, int descriptor){
 	OpenFilesList** fileList = getFileListForDescriptor(list, descriptor);
 	closeAllFilesFromList(fileList);
 }
+
+void closeFileForEveryone(ClientList* list, const char* filename){
+	ClientList* current = list;
+	while(current != NULL){
+		setFileClosed(current, current->descriptor, filename);
+		current = current->next;
+	}
+}

@@ -118,3 +118,30 @@ char* readCachedFile(CachedFile* file, char** buffer, size_t* size){
 	memcpy(*buffer, file->contents, *size); //Not needed if the file is not compressed, added for future extension
 	return *buffer;
 }
+
+void removeFileFromList(FileList** fileList, const char* filename){
+	FileList* list = *fileList;
+	if(list == NULL){
+		return;
+	}
+	if(strcmp(list->file->filename, filename) == 0){
+		*fileList = list->next;
+		list->next = NULL;
+		freeFileList(&list);
+		return;
+	}
+	while(list->next != NULL){
+		if(strcmp(list->next->file->filename, filename) == 0){
+			FileList* tmp = list->next->next;
+			list->next->next = NULL;
+			freeFileList(&(list->next));
+			list->next = tmp;
+			return;
+		}
+		list = list->next;
+	}
+}
+
+void removeFileFromCache(FileCache* fileCache, const char* filename){
+	removeFileFromList(&(fileCache->files), filename);
+}

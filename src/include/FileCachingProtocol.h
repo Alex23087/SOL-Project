@@ -98,4 +98,6 @@ void setFileClosed(ClientList* list, int descriptor, const char* filename);
 
 void closeAllFiles(ClientList* list, int descriptor);
 
+void closeFileForEveryone(ClientList* list, const char* filename);
+
 #endif //SOL_PROJECT_FILECACHINGPROTOCOL_H

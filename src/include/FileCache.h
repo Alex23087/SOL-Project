@@ -56,4 +56,6 @@ size_t getFileSize(CachedFile* file);
 
 char* readCachedFile(CachedFile* file, char** buffer, size_t* size);
 
+void removeFileFromCache(FileCache* fileCache, const char* filename);
+
 #endif //SOL_PROJECT_FILECACHE_H
