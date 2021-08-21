@@ -1,6 +1,6 @@
 #include <stddef.h>
 #include <malloc.h>
-#include "queue.h"
+#include "../include/Queue.h"
 
 Queue* initQueueNode(void* data){
 	Queue* out = malloc(sizeof(Queue));

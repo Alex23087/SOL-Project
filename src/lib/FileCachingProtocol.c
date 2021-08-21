@@ -3,8 +3,8 @@
 #include <malloc.h>
 #include <memory.h>
 #include <pthread.h>
-#include "FileCachingProtocol.h"
-#include "ion.h"
+#include "../include/FileCachingProtocol.h"
+#include "../include/ion.h"
 
 FCPMessage* fcpMessageFromBuffer(char buffer[FCP_MESSAGE_LENGTH]){
 	FCPMessage* out = malloc(FCP_MESSAGE_LENGTH);

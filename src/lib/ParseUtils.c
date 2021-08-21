@@ -1,6 +1,6 @@
 #include <malloc.h>
-#include "ParseUtils.h"
-#include "defines.h"
+#include "../include/ParseUtils.h"
+#include "../include/defines.h"
 #include <ctype.h>
 #include <string.h>
 #include <stdlib.h>

@@ -1,8 +1,8 @@
 #include <unistd.h>
 #include <stdio.h>
 
-#include "server.h"
-#include "client.h"
+#include "include/server.h"
+#include "include/client.h"
 
 int main() {
     /*

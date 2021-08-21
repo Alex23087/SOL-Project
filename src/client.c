@@ -3,9 +3,9 @@
 #include <unistd.h>
 #include <errno.h>
 
-#include "ClientAPI.h"
-#include "defines.h"
-#include "queue.h"
+#include "include/ClientAPI.h"
+#include "include/defines.h"
+#include "include/Queue.h"
 
 typedef enum ClientOperation{
 	WriteFile,

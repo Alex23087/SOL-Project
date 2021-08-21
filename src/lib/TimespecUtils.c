@@ -1,5 +1,5 @@
 #include <bits/types/struct_timespec.h>
-#include "timespecUtils.h"
+#include "../include/TimespecUtils.h"
 
 short compareTimes(const struct timespec lval, const struct timespec rval){
 	return (lval.tv_sec > rval.tv_sec) ? 1 : ((lval.tv_sec == rval.tv_sec) ? ((lval.tv_nsec == rval.tv_nsec) ? 0 : ((lval.tv_nsec > rval.tv_nsec) ? 1 : -1)) : -1); // NOLINT(cppcoreguidelines-narrowing-conversions)

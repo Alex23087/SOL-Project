@@ -1,34 +1,49 @@
 CC = gcc
 override CFLAGS += -Wall -pedantic
+VPATH=./src/
 
-server: server.o ParseUtils.o ion.o queue.o FileCachingProtocol.o FileCache.o
-	$(CC) $(CFLAGS) -pthread $^ -o $@
+all: client server
 
-server.o: server.c server.h
+server: mkbuilddir build/server.o build/ParseUtils.o build/ion.o build/queue.o build/FileCachingProtocol.o build/FileCache.o
+	$(CC) $(CFLAGS) -pthread $(filter-out $<,$^) -o $@
 
-client: client.o ClientAPI.o timespecUtils.o ParseUtils.o ion.o FileCachingProtocol.o queue.o
-	$(CC) $(CFLAGS) $^ -o $@
+build/server.o: src/server.c
+	$(CC) $(CFLAGS) $^ -c -o $@
 
-client.o: client.c client.h
+client: mkbuilddir ./build/client.o build/ClientAPI.o build/timespecUtils.o build/ParseUtils.o build/ion.o build/FileCachingProtocol.o build/queue.o
+	$(CC) $(CFLAGS) $(filter-out $<,$^) -o $@
 
-ClientAPI.o: ClientAPI.c ClientAPI.h
+build/client.o: src/client.c
+	$(CC) $(CFLAGS) $^ -c -o $@
 
-timespecUtils.o: timespecUtils.c timespecUtils.h
+build/ClientAPI.o: src/lib/ClientAPI.c
+	$(CC) $(CFLAGS) $^ -c -o $@
 
-ParseUtils.o: ParseUtils.c ParseUtils.h
+build/timespecUtils.o: src/lib/TimespecUtils.c
+	$(CC) $(CFLAGS) $^ -c -o $@
 
-ion.o: ion.c ion.h
+build/ParseUtils.o: src/lib/ParseUtils.c
+	$(CC) $(CFLAGS) $^ -c -o $@
 
-queue.o: queue.c queue.h
+build/ion.o: src/lib/ion.c
+	$(CC) $(CFLAGS) $^ -c -o $@
 
-FileCachingProtocol.o: FileCachingProtocol.c FileCachingProtocol.h
+build/queue.o: src/lib/Queue.c
+	$(CC) $(CFLAGS) $^ -c -o $@
 
-FileCache.o: FileCache.c FileCache.h
+build/FileCachingProtocol.o: src/lib/FileCachingProtocol.c
+	$(CC) $(CFLAGS) $^ -c -o $@
 
-.PHONY: clean cleanall
+build/FileCache.o: src/lib/FileCache.c
+	$(CC) $(CFLAGS) $^ -c -o $@
+
+.PHONY: clean cleanall mkbuilddir
 
 cleanall: clean
 	rm server client
 
 clean:
-	rm *.o
+	rm -rf build
+
+mkbuilddir:
+	mkdir -p build

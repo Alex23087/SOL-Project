@@ -9,12 +9,12 @@
 #include <malloc.h>
 #include <sys/stat.h>
 
-#include "ClientAPI.h"
-#include "timespecUtils.h"
-#include "ParseUtils.h"
-#include "defines.h"
-#include "FileCachingProtocol.h"
-#include "ion.h"
+#include "../include/ClientAPI.h"
+#include "../include/TimespecUtils.h"
+#include "../include/ParseUtils.h"
+#include "../include/defines.h"
+#include "../include/FileCachingProtocol.h"
+#include "../include/ion.h"
 
 //Open connections key value list, useful if the API is extended to handle more connections
 static ArgsList* openConnections = NULL;

@@ -8,13 +8,13 @@
 #include <sys/un.h>
 #include <errno.h>
 
-#include "defines.h"
-#include "ParseUtils.h"
-#include "ion.h"
-#include "queue.h"
-#include "FileCachingProtocol.h"
-#include "ClientAPI.h"
-#include "FileCache.h"
+#include "include/defines.h"
+#include "include/ParseUtils.h"
+#include "include/ion.h"
+#include "include/Queue.h"
+#include "include/FileCachingProtocol.h"
+#include "include/ClientAPI.h"
+#include "include/FileCache.h"
 
 #define MAX_BACKLOG 10
 #define W2M_MESSAGE_LENGTH 5

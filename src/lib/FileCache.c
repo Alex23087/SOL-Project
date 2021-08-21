@@ -1,4 +1,4 @@
-#include "FileCache.h"
+#include "../include/FileCache.h"
 
 CachedFile* initCachedFile(const char* filename){
 	CachedFile* out = malloc(sizeof(CachedFile));
