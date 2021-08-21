@@ -123,22 +123,29 @@ int openFile(const char* pathname, int flags){
 	printf("Open request sent\n");
 	
 	char fcpBuffer[FCP_MESSAGE_LENGTH];
-	readn(activeConnectionFD, fcpBuffer, FCP_MESSAGE_LENGTH);
+	ssize_t bytesRead = readn(activeConnectionFD, fcpBuffer, FCP_MESSAGE_LENGTH);
 	FCPMessage* message = fcpMessageFromBuffer(fcpBuffer);
 	
 	bool success = true;
-	switch(message->op){
-		case FCP_ACK:{
-			printf("File opened correctly\n");
-			break;
-		}
-		case FCP_ERROR:{
-			errno =	message->control;
-			success = false;
-			break;
-		}
-		default:{
-			success = false;
+	if(bytesRead != FCP_MESSAGE_LENGTH){
+		errno = EPROTO;
+		success = false;
+	}else{
+		switch(message->op){
+			case FCP_ACK:{
+				printf("File opened correctly\n");
+				break;
+			}
+			case FCP_ERROR:{
+				errno =	message->control;
+				success = false;
+				break;
+			}
+			default:{
+				errno = EPROTO;
+				success = false;
+				break;
+			}
 		}
 	}
 	
@@ -368,6 +375,7 @@ int unlockFile(const char* pathname){
 				break;
 			}
 			default:{
+				errno = EPROTO;
 				success = false;
 				break;
 			}
@@ -411,6 +419,53 @@ int closeFile(const char* pathname){
 		}
 		default:{
 			success = false;
+		}
+	}
+	
+	free(message);
+	return success ? 0 : -1;
+}
+
+int removeFile(const char* pathname){
+	if(activeConnectionFD == -1){
+		//Function called without an active connection
+		errno = ENOTCONN;
+		return -1;
+	}
+	
+	if(strlen(pathname) > FCP_MESSAGE_LENGTH - 5){
+		errno = ENAMETOOLONG;
+		return -1;
+	}
+	
+	printf("Sending remove file request to server\n");
+	fcpSend(FCP_REMOVE, 0, (char*)pathname, activeConnectionFD);
+	printf("Remove request sent\n");
+	
+	char fcpBuffer[FCP_MESSAGE_LENGTH];
+	ssize_t bytesRead = readn(activeConnectionFD, fcpBuffer, FCP_MESSAGE_LENGTH);
+	FCPMessage* message = fcpMessageFromBuffer(fcpBuffer);
+	
+	bool success = true;
+	if(bytesRead != FCP_MESSAGE_LENGTH){
+		errno = EPROTO;
+		success = false;
+	}else{
+		switch(message->op){
+			case FCP_ACK:{
+				printf("File removed correctly\n");
+				break;
+			}
+			case FCP_ERROR:{
+				errno =	message->control;
+				success = false;
+				break;
+			}
+			default:{
+				errno = EPROTO;
+				success = false;
+				break;
+			}
 		}
 	}
 	

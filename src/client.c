@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <errno.h>
+#include <string.h>
 
 #include "include/ClientAPI.h"
 #include "include/defines.h"
@@ -9,7 +10,10 @@
 
 typedef enum ClientOperation{
 	WriteFile,
-	ReadFile
+	ReadFile,
+	LockFile,
+	UnlockFile,
+	RemoveFile
 } ClientOperation;
 
 typedef union ClientParameter{
@@ -96,15 +100,24 @@ int clientMain(int argc, char** argv){
 				
 			}
 			case 'l':{
-				//TODO: Implement this
+				ClientCommand* cmd = malloc(sizeof(ClientCommand));
+				cmd->op = LockFile;
+				cmd->parameter.stringValue = optarg;
+				queuePush(&commandQueue, (void*)cmd);
 				break;
 			}
 			case 'u':{
-				//TODO: Implement this
+				ClientCommand* cmd = malloc(sizeof(ClientCommand));
+				cmd->op = UnlockFile;
+				cmd->parameter.stringValue = optarg;
+				queuePush(&commandQueue, (void*)cmd);
 				break;
 			}
 			case 'c':{
-				//TODO: Implement this
+				ClientCommand* cmd = malloc(sizeof(ClientCommand));
+				cmd->op = RemoveFile;
+				cmd->parameter.stringValue = optarg;
+				queuePush(&commandQueue, (void*)cmd);
 				break;
 			}
 			case '?':{
@@ -150,66 +163,97 @@ int clientMain(int argc, char** argv){
 		ClientCommand* currentCommand = (ClientCommand*)queuePop(&commandQueue);
 		switch(currentCommand->op) {
 			case WriteFile:{
-				if(openFile(currentCommand->parameter.stringValue, O_CREATE | O_LOCK)){
-					perror("Error while opening file");
-					finished = true;
-				}else{
-					if(writeFile(currentCommand->parameter.stringValue, cacheMissFolderPath)){
-						perror("Error while writing file to server");
+				char* savePtr = NULL;
+				char* token = strtok_r(currentCommand->parameter.stringValue, ",", &savePtr);
+				while(token != NULL) {
+					if(openFile(token, O_CREATE | O_LOCK)){
+						perror("Error while opening file");
 						finished = true;
 					}else{
-						if(closeFile(currentCommand->parameter.stringValue)){
-							perror("Error while closing file");
+						if(writeFile(token, cacheMissFolderPath)){
+							perror("Error while writing file to server");
+							finished = true;
+						}else{
+							if(closeFile(token)){
+								perror("Error while closing file");
+							}
 						}
 					}
+					token = strtok_r(NULL, ",", &savePtr);
 				}
 				break;
 			}
 			case ReadFile:{
-				/*if(openFile(currentCommand->parameter.stringValue, O_LOCK)){
-					perror("Error while opening file");
-					finished = true;
-				}else{
-					char* fileBuffer;
-					size_t fileSize = 0;
-					if(readFile(currentCommand->parameter.stringValue, (void**)(&fileBuffer), &fileSize)){
-						perror("Error while reading file from server");
+				char* savePtr = NULL;
+				char* token = strtok_r(currentCommand->parameter.stringValue, ",", &savePtr);
+				while(token != NULL) {
+					if(openFile(token, 0)){
+						perror("Error while opening file");
 						finished = true;
-					}else{
-						if(closeFile(currentCommand->parameter.stringValue)){
-							perror("Error while closing file");
-							finished = true;
-						}
-					}
-					free(fileBuffer);
-				}*/
-				if(openFile(currentCommand->parameter.stringValue, 0)){
-					perror("Error while opening file");
-					finished = true;
-				}else{
-					if(lockFile(currentCommand->parameter.stringValue)){
+					}else if(lockFile(token)){
 						perror("Error while locking file");
 						finished = true;
 					}else{
 						char* fileBuffer;
 						size_t fileSize = 0;
-						if(readFile(currentCommand->parameter.stringValue, (void**)(&fileBuffer), &fileSize)){
+						if(readFile(token, (void**)(&fileBuffer), &fileSize)){
 							perror("Error while reading file from server");
 							finished = true;
-						}else{
-							if(unlockFile(currentCommand->parameter.stringValue)){
-								perror("Error while unlocking file");
-								finished = true;
-							}else{
-								if(closeFile(currentCommand->parameter.stringValue)){
-									perror("Error while closing file");
-									finished = true;
-								}
-							}
+						}else if(unlockFile(token)){
+							perror("Error while unlocking file");
+							finished = true;
+						}else if(closeFile(token)){
+							perror("Error while closing file");
+							finished = true;
 						}
 						free(fileBuffer);
 					}
+					token = strtok_r(NULL, ",", &savePtr);
 				}
+				break;
+			}
+			case LockFile:{
+				char* savePtr = NULL;
+				char* token = strtok_r(currentCommand->parameter.stringValue, ",", &savePtr);
+				while(token != NULL) {
+					if(openFile(token, 0)){
+						perror("Error while opening file");
+						finished = true;
+						break;
+					}else if(lockFile(token)){
+						perror("Error while locking file");
+						finished = true;
+						break;
+					}
+					token = strtok_r(NULL, ",", &savePtr);
+				}
+				break;
+			}
+			case UnlockFile:{
+				char* savePtr = NULL;
+				char* token = strtok_r(currentCommand->parameter.stringValue, ",", &savePtr);
+				while(token != NULL) {
+					if(unlockFile(token)){
+						perror("Error while unlocking file");
+						finished = true;
+						break;
+					}
+					token = strtok_r(NULL, ",", &savePtr);
+				}
+				break;
+			}
+			case RemoveFile:{
+				char* savePtr = NULL;
+				char* token = strtok_r(currentCommand->parameter.stringValue, ",", &savePtr);
+				while(token != NULL) {
+					if(removeFile(token)){
+						perror("Error while deleting file");
+						finished = true;
+						break;
+					}
+					token = strtok_r(NULL, ",", &savePtr);
+				}
+				break;
 			}
 		}
 		free(currentCommand);
