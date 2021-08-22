@@ -597,6 +597,46 @@ void* workerThread(void* arg){
 							w2mSend(W2M_CLIENT_SERVED, fdToServe);
 							break;
 						}
+						case FCP_APPEND:{
+							//Client has issued an append request: update client status, send ack, warn master
+							printf("[Worker #%d]: Client %d issued op: %d (FCP_APPEND), size: %d, filename: \"%s\"\n", workerID, fdToServe, fcpMessage->op, fcpMessage->control, fcpMessage->filename);
+							
+							//Check if the client can write on this file
+							int error = 0;
+							CachedFile* file = getFileL(fcpMessage->filename);
+							
+							if(file != NULL){
+								bool isOpen = isFileOpenedByClientL(fcpMessage->filename, fdToServe);
+								
+								if(isOpen){
+									pthread_mutex_lock_error(file->lock, "Error while locking file");
+									if(file->lockedBy != fdToServe){
+										//File is not locked by this client
+										error = EPERM;
+									}
+									pthread_mutex_unlock_error(file->lock, "Error while unlocking file");
+								}else{
+									//File is not opened by this client
+									error = EBADF;
+								}
+							}else{
+								//File does not exist
+								error = ENOENT;
+							}
+							
+							if(error == 0){
+								//Update client status
+								updateClientStatusL(AppendingToFile, fcpMessage->control, fcpMessage->filename, fdToServe);
+							
+								fcpSend(FCP_ACK, 0, NULL, fdToServe);
+							}else{
+								//Invalid request, warn client
+								printf("[Worker #%d]: Client %d tried to append to a file %s\n", workerID, fdToServe, errno == ENOENT ? "that didn't exist" : "that wasn't locked by it");
+								fcpSend(FCP_ERROR, error, NULL, fdToServe);
+							}
+							w2mSend(W2M_CLIENT_SERVED, fdToServe);
+							break;
+						}
 						default:{
 							//Client has requested an invalid operation, forcibly disconnect it
 							printf("[Worker #%d]: Client %d has requested an invalid operation with opcode %d\n", workerID, fdToServe, fcpMessage->op);
@@ -709,6 +749,66 @@ void* workerThread(void* arg){
 					}
 					free(fcpMessage);
 				}
+				break;
+			}
+			case AppendingToFile:{
+				int32_t fileSize = status.data.messageLength;
+				
+				int error = 0;
+				char* buffer = malloc(fileSize);
+				size_t bytesRead = readn(fdToServe, buffer, fileSize);
+				if(bytesRead != fileSize){
+					//Client sent an ill-formed packet, disconnecting it
+					printf("[Worker #%d]: Client %d sent a different amount of bytes than advertised (%d vs %ld), disconnecting it\n", workerID, fdToServe, status.data.messageLength, bytesRead);
+					workerDisconnectClient(workerID, fdToServe);
+				}else{
+					//TODO: Check if the message was longer than advertised and throw error
+					
+					//Transfer completed successfully, send ack to client, set client status to connected, and send client served message to master
+					printf("[Worker #%d]: Received data from client %d, %ld bytes transferred\n", workerID, fdToServe, bytesRead);
+					
+					
+					//Save file
+					CachedFile* file = getFileL(status.data.filename);
+					if(file != NULL){
+						pthread_mutex_lock_error(file->lock, "Error while locking file");
+						if(file->lockedBy != fdToServe){
+							//File is not locked by this process
+							error = EPERM;
+						}else{
+							//Everything is ok, file can be written
+							char* fileBuffer;
+							size_t fileSize;
+							readCachedFile(file, &fileBuffer, &fileSize);
+							free(file->contents);
+							fileBuffer = realloc(fileBuffer, fileSize + bytesRead);
+							memcpy(fileBuffer + fileSize, buffer, bytesRead);
+							storeFile(file, fileBuffer, fileSize + bytesRead);
+						}
+						pthread_mutex_unlock_error(file->lock, "Error while unlocking file");
+					}else{
+						//File does not exist
+						error = ENOENT;
+					}
+					
+					
+					//Update client status
+					updateClientStatusL(Connected, 0, NULL, fdToServe);
+					
+					//Send messages to client and to master
+					if(error == 0){
+						printf("[Worker #%d]: Sending ack to client %d\n", workerID, fdToServe);
+						fcpSend(FCP_ACK, 0, NULL, fdToServe);
+					}else{
+						//Invalid request, warn client
+						printf("[Worker #%d]: Client %d tried to append to a file %s\n", workerID, fdToServe, errno == ENOENT ? "that didn't exist" : "that wasn't locked by it");
+						fcpSend(FCP_ERROR, error, NULL, fdToServe);
+					}
+					
+					w2mSend(W2M_CLIENT_SERVED, fdToServe);
+				}
+				
+				free(buffer);
 				break;
 			}
 			default:{

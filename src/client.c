@@ -4,10 +4,13 @@
 #include <errno.h>
 #include <string.h>
 #include <ctype.h>
+#include <fcntl.h>
+#include <sys/stat.h>
 
 #include "include/ClientAPI.h"
 #include "include/defines.h"
 #include "include/Queue.h"
+#include "include/ion.h"
 
 typedef enum ClientOperation{
 	WriteFile,
@@ -15,7 +18,8 @@ typedef enum ClientOperation{
 	LockFile,
 	UnlockFile,
 	RemoveFile,
-	ReadNFiles
+	ReadNFiles,
+	AppendFile
 } ClientOperation;
 
 typedef union ClientParameter{
@@ -46,7 +50,7 @@ int clientMain(int argc, char** argv){
 	Queue* commandQueue = NULL;
 	
 	while(!finished){
-		opt = getopt(argc, argv, "hf:w:W:D:r:R:d:t:l:u:c:p:");
+		opt = getopt(argc, argv, "hf:w:W:D:r:R:d:t:l:u:c:pa:");
 		switch(opt){
 			case 'h':{
 				//TODO: Write client help
@@ -143,6 +147,18 @@ int clientMain(int argc, char** argv){
 				queuePush(&commandQueue, (void*)cmd);
 				break;
 			}
+			case 'p':{
+				//TODO: Implement this
+				break;
+			}
+			case 'a':{
+				issuedWriteOperation = true;
+				ClientCommand* cmd = malloc(sizeof(ClientCommand));
+				cmd->op = AppendFile;
+				cmd->parameter.stringValue = optarg;
+				queuePush(&commandQueue, (void*)cmd);
+				break;
+			}
 			case '?':{
 				fprintf(stderr, "Unrecognized option: %c\n", optopt);
 				finished = true;
@@ -177,7 +193,6 @@ int clientMain(int argc, char** argv){
 	ts.tv_nsec = 0;
 	
 	openConnection(socketPath, 400, ts);
-	sleep(1);
 	
 	
 	//Process command queue
@@ -199,6 +214,7 @@ int clientMain(int argc, char** argv){
 						}else{
 							if(closeFile(token)){
 								perror("Error while closing file");
+								finished = true;
 							}
 						}
 					}
@@ -286,8 +302,71 @@ int clientMain(int argc, char** argv){
 				}
 				break;
 			}
+			case AppendFile:{
+				char* savePtr = NULL;
+				char* firstFile = strtok_r(currentCommand->parameter.stringValue, ",", &savePtr);
+				if(firstFile == NULL){
+					//Error: no file passed
+					fprintf(stderr, "No file passed to option -a\n");
+					finished = true;
+					break;
+				}
+				char* secondFile = strtok_r(NULL, ",", &savePtr);
+				if(secondFile == NULL){
+					//Error: only one file passed
+					fprintf(stderr, "Only one file passed to option -a\n");
+					finished = true;
+					break;
+				}
+				if(strtok_r(NULL, ",", &savePtr) != NULL){
+					//Error: more than two files passed
+					fprintf(stderr, "More than two files passed to option -a\n");
+					finished = true;
+					break;
+				}
+				
+				if(openFile(firstFile, O_LOCK)){
+					perror("Error while opening file on server");
+					finished = true;
+					break;
+				}
+				
+				int fileDescriptor = open(secondFile, O_RDONLY);
+				if(fileDescriptor <= -1){
+					perror("Error while opening file to append");
+					finished = true;
+					break;
+				}
+				
+				struct stat fileStat;
+				if(fstat(fileDescriptor, &fileStat)){
+					//Fstat failed
+					perror("Error while getting file info");
+					finished = true;
+					break;
+				}
+				off_t fileSize = fileStat.st_size;
+				
+				char* fileBuffer = malloc(fileSize);
+				readn(fileDescriptor, fileBuffer, fileSize);
+				
+				if(appendToFile(firstFile, fileBuffer, fileSize, cacheMissFolderPath)){
+					perror("Error while appending file to server");
+					finished = true;
+				}else{
+					if(closeFile(firstFile)){
+						perror("Error while closing file");
+						finished = true;
+					}
+				}
+				
+				free(fileBuffer);
+				close(fileDescriptor);
+				break;
+			}
 		}
 		free(currentCommand);
+		usleep(timeBetweenRequests * 1000);
 	}
 	
 	

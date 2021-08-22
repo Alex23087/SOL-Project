@@ -208,11 +208,17 @@ int readFile(const char* pathname, void** buf, size_t* size){
 }
 
 char* replaceBasename(const char* dirname, char* filename){
+	size_t dirnameLen = strlen(dirname);
+	bool shouldAppendSeparator = (dirname[dirnameLen - 1] != '/');
+	
 	const char* fileBasename = basename(filename);
-	size_t nameLength = strlen(dirname) + strlen(fileBasename) + 1;
+	size_t nameLength = strlen(dirname) + strlen(fileBasename) + 1 + shouldAppendSeparator;
 	char* fullName = malloc(nameLength);
 	memset(fullName, 0, nameLength);
 	strcpy(fullName, dirname);
+	if(shouldAppendSeparator){
+		strcat(fullName, "/");
+	}
 	strcat(fullName, fileBasename);
 	return fullName;
 }
@@ -253,13 +259,14 @@ int readNFiles(int N, const char* dirname){
 				if(dirname != NULL){
 					char* newFileName = replaceBasename(dirname, message->filename);
 					printf("Filename: %s\n", newFileName);
-					int fileDescriptor = open(newFileName, O_CREAT | O_WRONLY | O_TRUNC);
+					int fileDescriptor = open(newFileName, O_CREAT | O_WRONLY | O_TRUNC, 0644);
 					if(fileDescriptor == -1){
 						success = false;
 						free(newFileName);
 						break;
 					}
 					writen(fileDescriptor, fileBuffer, fileSize);
+					close(fileDescriptor);
 					printf("File saved to: %s\n", newFileName);
 					free(newFileName);
 				}else{
@@ -343,7 +350,6 @@ int writeFile(const char* pathname, const char* dirname){
 				writen(activeConnectionFD, fileBuffer, fileSize);
 				free(fileBuffer);
 				printf("File transfer complete, waiting for ack\n");
-				fcpBuffer[4] = 0;
 				if(readn(activeConnectionFD, fcpBuffer, FCP_MESSAGE_LENGTH) == FCP_MESSAGE_LENGTH){
 					free(message);
 					message = fcpMessageFromBuffer(fcpBuffer);
@@ -381,6 +387,87 @@ int writeFile(const char* pathname, const char* dirname){
 				success = false;
 				errno = EPROTO;
 				break;
+			}
+		}
+	
+		free(message);
+	}while(success && receivingCacheMissFiles);
+	
+	return success ? 0 : -1;
+}
+
+int appendToFile(const char* pathname, void* buf, size_t size, const char* dirname){
+	if(activeConnectionFD == -1){
+		//Function called without an active connection
+		errno = ENOTCONN;
+		return -1;
+	}
+	
+	if(strlen(pathname) > FCP_MESSAGE_LENGTH - 5){
+		errno = ENAMETOOLONG;
+		return -1;
+	}
+	
+	printf("Sending append request to server\n");
+	fcpSend(FCP_APPEND, (int)size, (char*)pathname, activeConnectionFD);
+	printf("Append request sent\n");
+	
+	bool receivingCacheMissFiles = false;
+	bool success = true;
+	char fcpBuffer[FCP_MESSAGE_LENGTH];
+	do{
+		ssize_t bytesRead = readn(activeConnectionFD, fcpBuffer, FCP_MESSAGE_LENGTH);
+		FCPMessage* message = fcpMessageFromBuffer(fcpBuffer);
+	
+		if(bytesRead != FCP_MESSAGE_LENGTH){
+			fprintf(stderr, "Server sent an invalid reply, operation failed\n");
+			errno = EPROTO;
+			success = false;
+		}else{
+			switch(message->op){
+				case FCP_ACK:{
+					receivingCacheMissFiles = false;
+					printf("Server has sent ack back, starting transfer\n");
+					writen(activeConnectionFD, buf, size);
+					printf("File transfer complete, waiting for ack\n");
+					if(readn(activeConnectionFD, fcpBuffer, FCP_MESSAGE_LENGTH) == FCP_MESSAGE_LENGTH){
+						free(message);
+						message = fcpMessageFromBuffer(fcpBuffer);
+			
+						switch(message->op) {
+							case FCP_ACK:{
+								printf("Received ack from server, operation completed successfully\n");
+								break;
+							}
+							default:{
+								printf("Server sent an invalid reply, operation failed\n");
+								errno = EPROTO;
+								success = false;
+								break;
+							}
+						}
+					}else{
+						printf("Server sent an invalid reply, operation failed\n");
+						errno = EPROTO;
+						success = false;
+					}
+					break;
+				}
+				case FCP_WRITE:{
+					//TODO: Receive files
+					receivingCacheMissFiles = true;
+					break;
+				}
+				case FCP_ERROR:{
+					errno = message->control;
+					success = false;
+					break;
+				}
+				default:{
+					success = false;
+					errno = EPROTO;
+					break;
+				}
 			}
 		}
 	
