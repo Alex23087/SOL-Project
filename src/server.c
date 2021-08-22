@@ -561,6 +561,42 @@ void* workerThread(void* arg){
 							w2mSend(W2M_CLIENT_SERVED, fdToServe);
 							break;
 						}
+						case FCP_READ_N:{
+							//Client has issued a readN request: send files, warn master
+							printf("[Worker #%d]: Client %d issued op: %d (FCP_READ_N), n: %d\n", workerID, fdToServe, fcpMessage->op, fcpMessage->control);
+							int n = fcpMessage->control;
+							if(n > 0){
+								printf("[Worker #%d]: Sending %d files\n", workerID, n);
+							}else{
+								printf("[Worker #%d]: Sending all files\n", workerID);
+							}
+							int counter = 0;
+							pthread_rwlock_rdlock_error(&fileCacheLock, "Error while locking file cache");
+							FileList* current = fileCache->files;
+							while(((n <= 0) || (counter < n)) && current != NULL){
+								pthread_mutex_lock_error(current->file->lock, "Error while locking file");
+								size_t fileSize = 0;
+								char* fileBuffer = NULL;
+								readCachedFile(current->file, &fileBuffer, &fileSize);
+								
+								printf("[Worker #%d]: Sending file \"%s\" to client %d\n", workerID, current->file->filename, fdToServe);
+								fcpSend(FCP_WRITE, fileSize, current->file->filename, fdToServe);
+								ssize_t bytesTransferred = writen(fdToServe, fileBuffer, fileSize);
+								printf("[Worker #%d]: Sent file \"%s\" to client %d, bytes transferred: %ld\n", workerID, current->file->filename, fdToServe, bytesTransferred);
+								
+								free(fileBuffer);
+								pthread_mutex_unlock_error(current->file->lock, "Error while unlocking file");
+								current = current->next;
+								counter++;
+							}
+							pthread_rwlock_unlock_error(&fileCacheLock, "Error while unlocking file cache");
+							
+							//Files sent, send ack to client and warn server
+							fcpSend(FCP_ACK, 0, NULL, fdToServe);
+							
+							w2mSend(W2M_CLIENT_SERVED, fdToServe);
+							break;
+						}
 						default:{
 							//Client has requested an invalid operation, forcibly disconnect it
 							printf("[Worker #%d]: Client %d has requested an invalid operation with opcode %d\n", workerID, fdToServe, fcpMessage->op);

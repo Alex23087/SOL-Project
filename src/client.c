@@ -3,6 +3,7 @@
 #include <unistd.h>
 #include <errno.h>
 #include <string.h>
+#include <ctype.h>
 
 #include "include/ClientAPI.h"
 #include "include/defines.h"
@@ -13,7 +14,8 @@ typedef enum ClientOperation{
 	ReadFile,
 	LockFile,
 	UnlockFile,
-	RemoveFile
+	RemoveFile,
+	ReadNFiles
 } ClientOperation;
 
 typedef union ClientParameter{
@@ -83,21 +85,42 @@ int clientMain(int argc, char** argv){
 			}
 			case 'R':{
 				issuedReadOperation = true;
-				//TODO: Implement this
+				ClientCommand* cmd = malloc(sizeof(ClientCommand));
+				cmd->op = ReadNFiles;
+				errno = 0;
+				char* endptr = NULL;
+				cmd->parameter.intValue = (int)strtol(optarg, &endptr, 10);
+				if(endptr != NULL && !(isspace(*endptr) || *endptr == 0)){
+					fprintf(stderr, "Invalid string passed as time: \"%s\"\n", optarg);
+					return -1;
+				}
+				if(errno != 0){
+					//TODO: Handle error
+					perror("Error in \n");
+					return -1;
+				}
+				queuePush(&commandQueue, (void*)cmd);
 				break;
 			}
 			case 'd':{
 				readOperationFolderPath = optarg;
+				break;
 			}
 			case 't':{
 				errno = 0;
-				timeBetweenRequests = strtoul(optarg, NULL, 10);
+				char* endptr = NULL;
+				timeBetweenRequests = strtoul(optarg, &endptr, 10);
+				if(endptr != NULL && !(isspace(*endptr) || *endptr == 0)){
+					fprintf(stderr, "Invalid string passed as time: \"%s\"\n", optarg);
+					return -1;
+				}
 				if(errno != 0){
 					//TODO: Handle error
 					perror("Invalid number passed as time\n");
 					return -1;
 				}
-				
+				printf("TimeBetweenRequests: %lu\n", timeBetweenRequests);
+				break;
 			}
 			case 'l':{
 				ClientCommand* cmd = malloc(sizeof(ClientCommand));
@@ -252,6 +275,14 @@ int clientMain(int argc, char** argv){
 						break;
 					}
 					token = strtok_r(NULL, ",", &savePtr);
+				}
+				break;
+			}
+			case ReadNFiles:{
+				if(readNFiles(currentCommand->parameter.intValue, readOperationFolderPath)){
+					perror("Error while reading N files");
+					finished = true;
+					break;
 				}
 				break;
 			}

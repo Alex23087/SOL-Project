@@ -8,6 +8,7 @@
 #include <fcntl.h>
 #include <malloc.h>
 #include <sys/stat.h>
+#include <libgen.h>
 
 #include "../include/ClientAPI.h"
 #include "../include/TimespecUtils.h"
@@ -169,33 +170,129 @@ int readFile(const char* pathname, void** buf, size_t* size){
 	fcpSend(FCP_READ, 0, (char*)pathname, activeConnectionFD);
 	printf("Read request sent\n");
 	
+	bool success = true;
+	char fcpBuffer[FCP_MESSAGE_LENGTH];
+	ssize_t bytesRead = readn(activeConnectionFD, fcpBuffer, FCP_MESSAGE_LENGTH);
+	FCPMessage* message = fcpMessageFromBuffer(fcpBuffer);
+	
+	if(bytesRead != FCP_MESSAGE_LENGTH){
+		success = false;
+		errno = EPROTO;
+	}else{
+		switch(message->op){
+			case FCP_WRITE:{
+				//Server will send the file
+				*size = message->control;
+				fcpSend(FCP_ACK, 0, NULL, activeConnectionFD);
+				*buf = malloc(*size);
+				readn(activeConnectionFD, *buf, *size);
+				break;
+			}
+			case FCP_ERROR:{
+				//Error while reading the file
+				success = false;
+				errno = message->control;
+				break;
+			}
+			default:{
+				//Invalid message received from server
+				success = false;
+				errno = EPROTO;
+				break;
+			}
+		}
+	}
+	
+	free(message);
+	return success ? 0 : -1;
+}
+
+char* replaceBasename(const char* dirname, char* filename){
+	const char* fileBasename = basename(filename);
+	size_t nameLength = strlen(dirname) + strlen(fileBasename) + 1;
+	char* fullName = malloc(nameLength);
+	memset(fullName, 0, nameLength);
+	strcpy(fullName, dirname);
+	strcat(fullName, fileBasename);
+	return fullName;
+}
+
+int readNFiles(int N, const char* dirname){
+	if(activeConnectionFD == -1){
+		//Function called without an active connection
+		errno = ENOTCONN;
+		return -1;
+	}
+	
+	printf("Sending readN request to server\n");
+	fcpSend(FCP_READ_N, N, NULL, activeConnectionFD);
+	printf("ReadN request sent\n");
 	
 	bool success = true;
 	char fcpBuffer[FCP_MESSAGE_LENGTH];
-	readn(activeConnectionFD, fcpBuffer, FCP_MESSAGE_LENGTH);
+	ssize_t bytesRead = readn(activeConnectionFD, fcpBuffer, FCP_MESSAGE_LENGTH);
 	FCPMessage* message = fcpMessageFromBuffer(fcpBuffer);
 	
-	switch(message->op){
-		case FCP_WRITE:{
-			//Server will send the file
-			*size = message->control;
-			fcpSend(FCP_ACK, 0, NULL, activeConnectionFD);
-			*buf = malloc(*size);
-			readn(activeConnectionFD, *buf, *size);
+	bool finished = false;
+	while(bytesRead != 0 && !finished){
+		switch(message->op){
+			case FCP_WRITE:{
+				//Server will send a file
+				printf("Receiving file from server (filename: \"%s\", bytes: %d)\n", message->filename, message->control);
+				size_t size = message->control;
+				char* fileBuffer = malloc(size);
+				ssize_t fileSize = readn(activeConnectionFD, fileBuffer, size);
+				printf("Received file from server, (%ld bytes)\n", fileSize);
+				
+				if(size != fileSize){
+					errno = EPROTO;
+					success = false;
+					break;
+				}
+				
+				if(dirname != NULL){
+					char* newFileName = replaceBasename(dirname, message->filename);
+					printf("Filename: %s\n", newFileName);
+					int fileDescriptor = open(newFileName, O_CREAT | O_WRONLY | O_TRUNC);
+					if(fileDescriptor == -1){
+						success = false;
+						free(newFileName);
+						break;
+					}
+					writen(fileDescriptor, fileBuffer, fileSize);
+					printf("File saved to: %s\n", newFileName);
+					free(newFileName);
+				}else{
+					printf("Save directory not specified, not saving file\n");
+				}
+				free(fileBuffer);
+				break;
+			}
+			case FCP_ACK:{
+				//All files sent
+				printf("ReadN operation finished\n");
+				finished = true;
+				break;
+			}
+			case FCP_ERROR:{
+				//Error while reading the file
+				success = false;
+				errno = message->control;
+				break;
+			}
+			default:{
+				//Invalid message received from server
+				success = false;
+				errno = EPROTO;
+				break;
+			}
+		}
+		if(!success || finished){
 			break;
 		}
-		case FCP_ERROR:{
-			//Error while reading the file
-			success = false;
-			errno = message->control;
-			break;
-		}
-		default:{
-			//Invalid message received from server
-			success = false;
-			errno = EPROTO;
-			break;
-		}
+		bytesRead = readn(activeConnectionFD, fcpBuffer, FCP_MESSAGE_LENGTH);
+		free(message);
+		message = fcpMessageFromBuffer(fcpBuffer);
 	}
 	
 	free(message);
