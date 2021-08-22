@@ -1,6 +1,7 @@
 CC = gcc
 override CFLAGS += -Wall -pedantic
-VPATH=./src/
+.PHONY: all clean cleanall mkbuilddir killserver hupserver test1 test2 test3
+
 
 all: client server
 
@@ -37,7 +38,7 @@ build/FileCachingProtocol.o: src/lib/FileCachingProtocol.c
 build/FileCache.o: src/lib/FileCache.c
 	$(CC) $(CFLAGS) $^ -c -o $@
 
-.PHONY: clean cleanall mkbuilddir
+
 
 cleanall: clean
 	rm server client
@@ -47,3 +48,15 @@ clean:
 
 mkbuilddir:
 	mkdir -p build
+
+
+killserver:
+	ps -o pid,command | grep -E "(valgrind)?server" | grep -Eo "[0-9]{3,6}" | xargs -n1 kill -SIGTERM
+
+hupserver:
+	ps -o pid,command | grep -E "(valgrind)?server" | grep -Eo "[0-9]{3,6}" | xargs -n1 kill -SIGHUP
+
+test1:
+	valgrind --leak-check=full --show-leak-kinds=all --track-origins=yes -s ./server -c tests/test1/config.txt&
+	sleep 5&
+	./tests/test1/startClients.sh

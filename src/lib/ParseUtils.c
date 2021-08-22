@@ -121,12 +121,12 @@ ArgsList* readConfigFile(const char* filename){
                 }
             }
         }
+        fclose(file);
     }else{
         //TODO: Handle error
 	    perror("File couldn't be read");
     }
 	
-	fclose(file);
     free(buffer);
     return head;
 }
@@ -165,7 +165,7 @@ char* getStringValue(ArgsList* list, const char* key){
 	if(node == NULL || node->type != String || node->data == NULL){
 		//TODO: Handle error
 		fprintf(stderr, "Error while getting string value for key: %s\n", key);
-		exit(1);
+		return NULL;
 	}
 	
 	//Returns a copy of the string, so that the list node can be safely deallocated without destroying the string value

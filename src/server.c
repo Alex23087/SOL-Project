@@ -7,6 +7,7 @@
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <errno.h>
+#include <stdlib.h>
 
 #include "include/defines.h"
 #include "include/ParseUtils.h"
@@ -436,12 +437,14 @@ void* workerThread(void* arg){
 									w2mSend(W2M_CLIENT_SERVED, fdToServe);
 								}else{
 									//Trying to close a file that's not open, send error
+									printf("[Worker #%d]: Client %d tried to close file \"%s\", which isn't open by it\n", workerID, fdToServe, fcpMessage->filename);
 									error = EBADF;
 									fcpSend(FCP_ERROR, error, NULL, fdToServe);
 									w2mSend(W2M_CLIENT_SERVED, fdToServe);
 								}
 							}else{
 								//Trying to close a nonexistent file, send error
+								printf("[Worker #%d]: Client %d tried to close file \"%s\", which doesn't exist\n", workerID, fdToServe, fcpMessage->filename);
 								error = ENOENT;
 								fcpSend(FCP_ERROR, error, NULL, fdToServe);
 								w2mSend(W2M_CLIENT_SERVED, fdToServe);
@@ -860,6 +863,7 @@ int main(int argc, char** argv){
 			}
 			case 'c':{
 				configFilePath = optarg;
+				break;
 			}
 			case '?':{
 				fprintf(stderr, "Unrecognized option: %c\n", optopt);
@@ -874,14 +878,65 @@ int main(int argc, char** argv){
 	
 	
 	//Config file parsing
+	bool error = false;
 	ArgsList* configArgs = readConfigFile(configFilePath);
-	nWorkers = getLongValue(configArgs, "nWorkers");
-	maxFiles = getLongValue(configArgs, "maxFiles");
-	socketPath = getStringValue(configArgs, "socketPath");
-	logFilePath = getStringValue(configArgs, "logFile");
-	storageSize = getLongValue(configArgs, "storageSize");
-	//TODO: Maybe change the config so that you can specify sizes such as "100M", "1G", etc.
-	freeArgsListNode(configArgs);
+	if(configArgs == NULL){
+		fprintf(stderr, "Error while reading config file\n");
+		error = true;
+	}else{
+		char* storageString = getStringValue(configArgs, "storageSize");
+		do{
+			if(storageString == NULL){
+				error = true;
+				break;
+			}
+			nWorkers = getLongValue(configArgs, "nWorkers");
+			maxFiles = getLongValue(configArgs, "maxFiles");
+			socketPath = getStringValue(configArgs, "socketPath");
+			if(socketPath == NULL){
+				error = true;
+				break;
+			}
+			logFilePath = getStringValue(configArgs, "logFile");
+			if(logFilePath == NULL){
+				error = true;
+				free(socketPath);
+				break;
+			}
+		
+			char* endptr = NULL;
+			storageSize = strtoul(storageString, &endptr, 10);
+			switch(*endptr){
+				case 'k':
+				case 'K':{
+					storageSize *= 1024;
+					break;
+				}
+			case 'm':
+				case 'M':{
+					storageSize *= 1024 * 1024;
+					break;
+				}
+				case 'g':
+				case 'G':{
+					storageSize *= 1024 * 1024 * 1024;
+					break;
+				}
+				case 'b':
+				case 'B':
+				default:{
+					break;
+				}
+			}
+		}while(false);
+		free(storageString);
+		freeArgsListNode(configArgs);
+	}
+	
+	if(error){
+		return -1;
+	}
+	
 	
 	fileCache = initFileCache(maxFiles, storageSize);
 	
