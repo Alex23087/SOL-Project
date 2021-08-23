@@ -3,4 +3,4 @@ alias valserver='make CFLAGS=-g server && valgrind --leak-check=full --show-leak
 alias client='make CFLAGS=-DDEBUG client && ./client -f /tmp/LSOfilestorage.sk -W config.txt'
 alias valclient='make CFLAGS=-g client && valgrind --leak-check=full --show-leak-kinds=all --track-origins=yes ./client -f /tmp/LSOfilestorage.sk -W config.txt'
 alias killserver='kill -SIGKILL $(ps -a | grep server | grep -oE "[0-9]{4,5}")'
-alias clocall='cloc src'
+alias clocall='cloc src tests'

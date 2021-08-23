@@ -6,6 +6,8 @@
 #include <ctype.h>
 #include <fcntl.h>
 #include <sys/stat.h>
+#include <libgen.h>
+#include <ftw.h>
 
 #include "include/ClientAPI.h"
 #include "include/defines.h"
@@ -14,6 +16,7 @@
 
 typedef enum ClientOperation{
 	WriteFile,
+	WriteFolder,
 	ReadFile,
 	LockFile,
 	UnlockFile,
@@ -32,6 +35,11 @@ typedef struct ClientCommand{
 	ClientParameter parameter;
 } ClientCommand;
 
+unsigned long filesToSend;
+char* cacheMissFolderPath = NULL;
+
+int clientWriteFile (const char* fpath, const struct stat* sb, int typeflag);
+
 #ifdef IDE
 int clientMain(int argc, char** argv){
 #else
@@ -42,7 +50,6 @@ int clientMain(int argc, char** argv){
 	bool finished = false;
 	
 	char* socketPath = NULL;
-	char* cacheMissFolderPath = NULL;
 	char* readOperationFolderPath = NULL;
 	bool issuedWriteOperation = false;
 	bool issuedReadOperation = false;
@@ -50,13 +57,48 @@ int clientMain(int argc, char** argv){
 	Queue* commandQueue = NULL;
 	
 	while(!finished){
-		opt = getopt(argc, argv, "hf:w:W:D:r:R:d:t:l:u:c:pa:");
+		opt = getopt(argc, argv, "hf:w:W:D:r:R:d:t:l:u:c:pva:");
 		switch(opt){
 			case 'h':{
-				//TODO: Write client help
-				printf("%s\n", argv[0]);
+				printf(
+						"Usage: %s [OPTIONS...]\n\n"
+						"  -h\t\t\tPrints this help message.\n\n"
+						"  -f filename\t\tSpecifies the socket to connect to.\n\n"
+						"  -w dirname[,n=0]\tWrites the files contained in the 'dirname'\n"
+						"\t\t\tdirectory to the server. If the directory contains\n"
+						"\t\t\tother subdirectories, these will be visited\n"
+						"\t\t\trecursively. If the parameter 'n' is not specified,\n"
+						"\t\t\tor it is equal to 0, all files found will be sent,\n"
+						"\t\t\totherwise only the first n files found will be sent.\n\n"
+						"  -W file1[,file2...]\tWrites the files specified (separated by a ',')\n"
+						"\t\t\tto the server.\n\n"
+						"  -D dirname\t\tSpecifies the folder where to save files that are\n"
+						"\t\t\tsent by the server because of a capacity miss.\n"
+						"\t\t\tIf this option is not specified, such files will be\n"
+						"\t\t\tignored by the client.\n"
+						"\t\t\tIf this option is specified, but neither -w nor -W\n"
+						"\t\t\tare used, the program will terminate with an error.\n\n"
+						"  -r file1[,file2...]\tReads the files specified (separated by a ',')\n"
+						"\t\t\tfrom the server.\n\n"
+						"  -R [n=0]\t\tReads any n files from the server. If n is not\n"
+						"\t\t\tspecified, or n=0, all the files currently in\n"
+						"\t\t\tthe server are read\n\n"
+						"  -d dirname\t\tSpecifies the folder where to save files that are\n"
+						"\t\t\tread from the server with the options -r and -R.\n"
+						"\t\t\tIf this option is not specified, such files will be\n"
+						"\t\t\tignored by the client.\n"
+						"\t\t\tIf this option is specified, but neither -r nor -R\n"
+						"\t\t\tare used, the program will terminate with an error.\n\n"
+						"  -t time\t\tTime in milliseconds between two requests\n"
+						"\t\t\tto the server.\n\n"
+						"  -l file1[,file2...]\tAcquires a lock on the files specified\n"
+						"\t\t\t(separated by a ',').\n\n"
+						"  -u file1[,file2...]\tReleases the lock on the files specified\n"
+						"\t\t\t(separated by a ',').\n\n"
+						"  -p, -v\t\tPrints info about each operation.\n\n", basename(argv[0]));
 				finished = true;
-				break;
+				queueFree(commandQueue);
+				return 0;
 			}
 			case 'f':{
 				socketPath = optarg;
@@ -64,7 +106,10 @@ int clientMain(int argc, char** argv){
 			}
 			case 'w':{
 				issuedWriteOperation = true;
-				//TODO: Implement this
+				ClientCommand* cmd = malloc(sizeof(ClientCommand));
+				cmd->op = WriteFolder;
+				cmd->parameter.stringValue = optarg;
+				queuePush(&commandQueue, (void*)cmd);
 				break;
 			}
 			case 'W':{
@@ -123,7 +168,6 @@ int clientMain(int argc, char** argv){
 					perror("Invalid number passed as time\n");
 					return -1;
 				}
-				printf("TimeBetweenRequests: %lu\n", timeBetweenRequests);
 				break;
 			}
 			case 'l':{
@@ -147,6 +191,7 @@ int clientMain(int argc, char** argv){
 				queuePush(&commandQueue, (void*)cmd);
 				break;
 			}
+			case 'v':
 			case 'p':{
 				//TODO: Implement this
 				break;
@@ -259,7 +304,8 @@ int clientMain(int argc, char** argv){
 						perror("Error while opening file");
 						finished = true;
 						break;
-					}else if(lockFile(token)){
+					}
+					if(lockFile(token)){
 						perror("Error while locking file");
 						finished = true;
 						break;
@@ -277,6 +323,11 @@ int clientMain(int argc, char** argv){
 						finished = true;
 						break;
 					}
+					if(closeFile(token)){
+						perror("Error while closing file");
+						finished = true;
+						break;
+					}
 					token = strtok_r(NULL, ",", &savePtr);
 				}
 				break;
@@ -285,6 +336,11 @@ int clientMain(int argc, char** argv){
 				char* savePtr = NULL;
 				char* token = strtok_r(currentCommand->parameter.stringValue, ",", &savePtr);
 				while(token != NULL) {
+					if(openFile(token, O_LOCK)){
+						perror("Error while opening file");
+						finished = true;
+						break;
+					}
 					if(removeFile(token)){
 						perror("Error while deleting file");
 						finished = true;
@@ -364,6 +420,52 @@ int clientMain(int argc, char** argv){
 				close(fileDescriptor);
 				break;
 			}
+			case WriteFolder:{
+				char* savePtr = NULL;
+				char* dirname = strtok_r(currentCommand->parameter.stringValue, ",", &savePtr);
+				if(dirname == NULL){
+					//Error: no file passed
+					fprintf(stderr, "No dirname passed to option -w\n");
+					finished = true;
+					break;
+				}
+				char* nString = strtok_r(NULL, ",", &savePtr);
+				if(nString == NULL){
+					filesToSend = 0;
+				}else{
+					errno = 0;
+					char* endptr = NULL;
+					if(strlen(nString) < 3){
+						fprintf(stderr, "Invalid string passed as n to option -w: \"%s\"\n", nString);
+						finished = true;
+						break;
+					}
+					filesToSend = strtoul(nString+2, &endptr, 10);
+					//Encoding values different from 0 by adding 1, because of how the value filesToSend is used in clientWriteFile
+					if(filesToSend != 0){
+						filesToSend++;
+					}
+					if(endptr != NULL && !(isspace(*endptr) || *endptr == 0)){
+						fprintf(stderr, "Invalid string passed as n to option -w: \"%s\"\n", nString);
+						finished = true;
+						break;
+					}
+					if(errno != 0){
+						perror("Invalid number passed as n to option -w\n");
+						finished = true;
+						break;
+					}
+				}
+				
+				
+				if(ftw(currentCommand->parameter.stringValue, clientWriteFile, 15)){
+					if(filesToSend != 1){
+						perror("Error while sending files in folder");
+						finished = true;
+					}
+				}
+				break;
+			}
 		}
 		free(currentCommand);
 		usleep(timeBetweenRequests * 1000);
@@ -372,5 +474,30 @@ int clientMain(int argc, char** argv){
 	
 	closeConnection(socketPath);
 	
+	return 0;
+}
+
+int clientWriteFile (const char* fpath, const struct stat* sb, int typeflag){
+	if(filesToSend != 1){
+		if(typeflag == FTW_F){
+			if(openFile(fpath, O_CREATE | O_LOCK)){
+				perror("Error while opening file");
+				return -1;
+			}
+			if(writeFile(fpath, cacheMissFolderPath)){
+				perror("Error while writing file to server");
+				return -1;
+			}
+			if(closeFile(fpath)){
+				perror("Error while closing file");
+				return -1;
+			}
+			if(filesToSend != 0){
+				filesToSend--;
+			}
+		}
+	}else{
+		return -1;
+	}
 	return 0;
 }

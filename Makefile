@@ -1,6 +1,6 @@
 CC = gcc
 override CFLAGS += -Wall -pedantic
-.PHONY: all clean cleanall mkbuilddir killserver hupserver test1 test2 test3
+.PHONY: all clean cleanall mkbuilddir killserver hupserver test1 test2 test3 cleantest1 cleantest2 cleantest3
 
 
 all: client server
@@ -40,8 +40,8 @@ build/FileCache.o: src/lib/FileCache.c
 
 
 
-cleanall: clean
-	rm server client
+cleanall: clean cleantest1
+	rm -f server client
 
 clean:
 	rm -rf build
@@ -51,12 +51,14 @@ mkbuilddir:
 
 
 killserver:
-	ps -o pid,command | grep -E "(valgrind)?server" | grep -Eo "[0-9]{3,6}" | xargs -n1 kill -SIGTERM
+	ps -o pid,command | grep -E "(valgrind)?server" | head -n1 | grep -Eo "[0-9]{3,6}" | xargs -n1 kill -SIGTERM
 
 hupserver:
-	ps -o pid,command | grep -E "(valgrind)?server" | grep -Eo "[0-9]{3,6}" | xargs -n1 kill -SIGHUP
+	ps -o pid,command | grep -E "(valgrind)?server" | head -n1 | grep -Eo "[0-9]{3,6}" | xargs -n1 kill -SIGHUP
 
-test1:
-	valgrind --leak-check=full --show-leak-kinds=all --track-origins=yes -s ./server -c tests/test1/config.txt&
-	sleep 5&
-	./tests/test1/startClients.sh
+test1: cleantest1
+	(mkdir -p ./tests/test1/tmp && sleep 2 && ./tests/test1/startClients.sh) &
+	valgrind --leak-check=full --show-leak-kinds=all --track-origins=yes -s ./server -c tests/test1/config.txt
+
+cleantest1:
+	rm -rf ./tests/test1/tmp
