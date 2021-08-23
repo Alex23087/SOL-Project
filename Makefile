@@ -11,7 +11,7 @@ server: mkbuilddir build/server.o build/ParseUtils.o build/ion.o build/queue.o b
 build/server.o: src/server.c
 	$(CC) $(CFLAGS) $^ -c -o $@
 
-client: mkbuilddir ./build/client.o build/ClientAPI.o build/timespecUtils.o build/ParseUtils.o build/ion.o build/FileCachingProtocol.o build/queue.o
+client: mkbuilddir ./build/client.o build/ClientAPI.o build/timespecUtils.o build/ParseUtils.o build/ion.o build/FileCachingProtocol.o build/queue.o build/PathUtils.o
 	$(CC) $(CFLAGS) $(filter-out $<,$^) -o $@
 
 build/client.o: src/client.c
@@ -38,6 +38,9 @@ build/FileCachingProtocol.o: src/lib/FileCachingProtocol.c
 build/FileCache.o: src/lib/FileCache.c
 	$(CC) $(CFLAGS) $^ -c -o $@
 
+build/PathUtils.o: src/lib/PathUtils.c
+	$(CC) $(CFLAGS) $^ -c -o $@
+
 
 
 cleanall: clean cleantest1
@@ -61,4 +64,4 @@ test1: cleantest1
 	valgrind --leak-check=full --show-leak-kinds=all --track-origins=yes -s ./server -c tests/test1/config.txt
 
 cleantest1:
-	rm -rf ./tests/test1/tmp
+	rm -rf ./tests/test1/files/tmp

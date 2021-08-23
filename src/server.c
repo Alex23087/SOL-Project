@@ -1,6 +1,5 @@
 #include <getopt.h>
 #include <stdio.h>
-#include <malloc.h>
 #include <unistd.h>
 #include <pthread.h>
 #include <signal.h>
@@ -251,6 +250,13 @@ void serverRemoveFileL(const char* filename){
 	pthread_rwlock_unlock_error(&fileCacheLock, "Error while unlocking on file cache");
 }
 
+void serverRemoveFile(const char* filename){
+	pthread_rwlock_wrlock_error(&clientListLock, "Error while locking on client list");
+	closeFileForEveryone(clientList, filename);
+	pthread_rwlock_unlock_error(&clientListLock, "Error while unlocking on client list");
+	removeFileFromCache(fileCache, filename);
+}
+
 void* workerThread(void* arg){
 	int workerID = (int)(long)arg;
 	printf("[Worker #%d]: Up and running\n", workerID);
@@ -316,10 +322,42 @@ void* workerThread(void* arg){
 							}
 							
 							if(error == 0){
-								//Update client status
-								updateClientStatusL(SendingFile, fcpMessage->control, fcpMessage->filename, fdToServe);
+								//Client can write file, check for capacity faults
+								bool capacityError = false;
+								pthread_rwlock_rdlock_error(&fileCacheLock, "Error while locking file cache");
+								pthread_mutex_lock_error(file->lock, "Error while locking on file");
+								while(!canFitNewData(fileCache, fcpMessage->filename, fcpMessage->control, false)){
+									const char* evictedFileName = getFileToEvict(fileCache, fcpMessage->filename);
+									if(evictedFileName == NULL){
+										printf("[Worker #%d]: Read request can't be fulfilled because of a capacity fault, no file can be evicted to fulfill it\n", workerID);
+										capacityError = true;
+										break;
+									}else{
+										printf("[Worker #%d]: Read request can't be fulfilled because of a capacity fault, evicting file \"%s\"\n", workerID, evictedFileName);
+										CachedFile* evictedFile = getFile(fileCache, evictedFileName);
+										pthread_mutex_lock_error(evictedFile->lock, "Error while locking on file");
+										char* evictedFileBuffer = NULL;
+										size_t evictedFileSize = 0;
+										readCachedFile(evictedFile, &evictedFileBuffer, &evictedFileSize);
+										fcpSend(FCP_WRITE, (int32_t)evictedFileSize, (char*)evictedFileName, fdToServe);
+										ssize_t bytesSent = writen(fdToServe, evictedFileBuffer, evictedFileSize);
+										free(evictedFileBuffer);
+										printf("[Worker #%d]: Sent file to client %d, %ld bytes transferred\n", workerID, fdToServe, bytesSent);
+										pthread_mutex_unlock_error(evictedFile->lock, "Error while unlocking file");
+										serverRemoveFile(evictedFileName);
+									}
+								}
+								pthread_mutex_unlock_error(file->lock, "Error while unlocking on file");
+								pthread_rwlock_unlock_error(&fileCacheLock, "Error while unlocking file cache");
+								
+								if(capacityError){
+									fcpSend(FCP_ERROR, EFBIG, NULL, fdToServe);
+								}else{
+									//Enough capacity for the file, send ack to the client
+									updateClientStatusL(SendingFile, fcpMessage->control, fcpMessage->filename, fdToServe);
 							
-								fcpSend(FCP_ACK, 0, NULL, fdToServe);
+									fcpSend(FCP_ACK, 0, NULL, fdToServe);
+								}
 							}else{
 								//Invalid request, warn client
 								printf("[Worker #%d]: Client %d tried to write a file %s\n", workerID, fdToServe, errno == ENOENT ? "that didn't exist" : "that wasn't locked by it");
@@ -427,6 +465,17 @@ void* workerThread(void* arg){
 								bool isOpen = isFileOpenedByClientL(fcpMessage->filename, fdToServe);
 								
 								if(isOpen){
+									CachedFile* file = getFileL(fcpMessage->filename);
+								
+									//Unlocking file if it was locked by client
+									pthread_mutex_lock_error(file->lock, "Error while locking file");
+									if(file->lockedBy == fdToServe){
+										file -> lockedBy = -1;
+										pthread_cond_signal_error(file->clientLockWakeupCondition, "Error while signaling on conditional variable for file");
+									}
+									pthread_mutex_unlock_error(file->lock, "Error while unlocking file");
+									
+									//Closing file
 									pthread_rwlock_rdlock_error(&clientListLock, "Error while locking on client list");
 									setFileClosed(clientList, fdToServe, fcpMessage->filename);
 									pthread_rwlock_unlock_error(&clientListLock, "Error while unlocking on client list");
@@ -678,7 +727,7 @@ void* workerThread(void* arg){
 						}else{
 							//Everything is ok, file can be written
 							free(file->contents);
-							storeFile(file, buffer, fileSize);
+							storeFile(fileCache, file, buffer, fileSize);
 						}
 						pthread_mutex_unlock_error(file->lock, "Error while unlocking file");
 					}else{
@@ -786,7 +835,7 @@ void* workerThread(void* arg){
 							free(file->contents);
 							fileBuffer = realloc(fileBuffer, fileSize + bytesRead);
 							memcpy(fileBuffer + fileSize, buffer, bytesRead);
-							storeFile(file, fileBuffer, fileSize + bytesRead);
+							storeFile(fileCache, file, fileBuffer, fileSize + bytesRead);
 						}
 						pthread_mutex_unlock_error(file->lock, "Error while unlocking file");
 					}else{

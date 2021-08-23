@@ -13,6 +13,7 @@
 #include "include/defines.h"
 #include "include/Queue.h"
 #include "include/ion.h"
+#include "include/PathUtils.h"
 
 typedef enum ClientOperation{
 	WriteFile,
@@ -57,7 +58,7 @@ int clientMain(int argc, char** argv){
 	Queue* commandQueue = NULL;
 	
 	while(!finished){
-		opt = getopt(argc, argv, "hf:w:W:D:r:R:d:t:l:u:c:pva:");
+		opt = getopt(argc, argv, "hf:w:W:D:r:R::d:t:l:u:c:pva:");
 		switch(opt){
 			case 'h':{
 				printf(
@@ -136,17 +137,25 @@ int clientMain(int argc, char** argv){
 				issuedReadOperation = true;
 				ClientCommand* cmd = malloc(sizeof(ClientCommand));
 				cmd->op = ReadNFiles;
-				errno = 0;
-				char* endptr = NULL;
-				cmd->parameter.intValue = (int)strtol(optarg, &endptr, 10);
-				if(endptr != NULL && !(isspace(*endptr) || *endptr == 0)){
-					fprintf(stderr, "Invalid string passed as time: \"%s\"\n", optarg);
-					return -1;
-				}
-				if(errno != 0){
-					//TODO: Handle error
-					perror("Error in \n");
-					return -1;
+				if(optarg == NULL){
+					cmd->parameter.intValue = 0;
+				}else{
+					errno = 0;
+					char* endptr = NULL;
+					if(strlen(optarg) < 3){
+						fprintf(stderr, "Invalid string passed as parameter to -R: \"%s\"\n", optarg);
+						return -1;
+					}
+					cmd->parameter.intValue = (int)strtol(optarg + 2, &endptr, 10);
+					if(endptr != NULL && !(isspace(*endptr) || *endptr == 0)){
+						fprintf(stderr, "Invalid string passed as time: \"%s\"\n", optarg);
+						return -1;
+					}
+					if(errno != 0){
+						//TODO: Handle error
+						perror("Error in \n");
+						return -1;
+					}
 				}
 				queuePush(&commandQueue, (void*)cmd);
 				break;
@@ -280,6 +289,7 @@ int clientMain(int argc, char** argv){
 					}else{
 						char* fileBuffer;
 						size_t fileSize = 0;
+						errno = 0;
 						if(readFile(token, (void**)(&fileBuffer), &fileSize)){
 							perror("Error while reading file from server");
 							finished = true;
@@ -289,6 +299,24 @@ int clientMain(int argc, char** argv){
 						}else if(closeFile(token)){
 							perror("Error while closing file");
 							finished = true;
+						}else{
+							//Operation successful, save file
+							if(readOperationFolderPath != NULL){
+								char* newFileName = replaceBasename(readOperationFolderPath, token);
+								printf("Saving file to: %s\n", newFileName);
+								int fileDescriptor = open(newFileName, O_CREAT | O_WRONLY | O_TRUNC, 0644);
+								if(fileDescriptor == -1){
+									perror("Error while saving file");
+									finished = true;
+								}else{
+									writen(fileDescriptor, fileBuffer, fileSize);
+									close(fileDescriptor);
+									printf("File saved to: %s\n", newFileName);
+								}
+								free(newFileName);
+							}else{
+								printf("No output directory specified, not saving file\n");
+							}
 						}
 						free(fileBuffer);
 					}

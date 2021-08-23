@@ -1,5 +1,9 @@
 #include "../include/FileCache.h"
 
+bool canFitNewData(FileCache* fileCache, const char* filename, size_t dataSize, bool append){
+	return (fileCache->current.size) - (append ? 0 : getFileSize(getFile(fileCache, filename))) + dataSize <= fileCache->max.size;
+}
+
 CachedFile* initCachedFile(const char* filename){
 	CachedFile* out = malloc(sizeof(CachedFile));
 	out->lock = malloc(sizeof(pthread_mutex_t));
@@ -31,8 +35,8 @@ CachedFile* initCachedFile(const char* filename){
 
 FileCache* initFileCache(unsigned int maxFiles, unsigned long maxSize){
 	FileCache* out = malloc(sizeof(FileCache));
-	out->maxFiles = maxFiles;
-	out->maxSize = maxSize;
+	out->max.fileNumber = maxFiles;
+	out->max.size = maxSize;
 	out->files = NULL;
 	return out;
 }
@@ -77,6 +81,31 @@ void freeFileCache(FileCache** fileCache){
 	*fileCache = NULL;
 }
 
+const char* getFileToEvict(FileCache* fileCache, const char* fileToExclude){
+	FileList* current = fileCache->files;
+	if(current == NULL){
+		return NULL;
+	}
+	if(strcmp(current->file->filename, fileToExclude) == 0){
+		current = current->next;
+		if(current == NULL){
+			return NULL;
+		}
+	}
+	while(current->next != NULL){
+		if(strcmp(current->next->file->filename, fileToExclude) == 0){
+			if(current->next->next == NULL){
+				break;
+			}else{
+				current = current->next->next;
+			}
+		}else{
+			current = current->next;
+		}
+	}
+	return current->file->filename;
+}
+
 CachedFile* getFile(FileCache* fileCache, const char* filename){
 	FileList* current = fileCache->files;
 	while(current != NULL){
@@ -99,8 +128,14 @@ CachedFile* getFileLockedByClient(FileCache* fileCache, int clientFd){
 	return NULL;
 }
 
-size_t storeFile(CachedFile* file, char* contents, size_t size){
+size_t storeFile(FileCache* fileCache, CachedFile* file, char* contents, size_t size){
 	//TODO: Implement compression
+	fileCache->current.size -= getFileSize(file);
+	fileCache->current.size += size;
+	if(fileCache->current.size > fileCache->maxReached.size){
+		fileCache->maxReached.size = fileCache->current.size;
+	}
+	
 	file->size = size;
 	file->contents = contents;
 	return sizeof(contents);
@@ -119,7 +154,7 @@ char* readCachedFile(CachedFile* file, char** buffer, size_t* size){
 	return *buffer;
 }
 
-void removeFileFromList(FileList** fileList, const char* filename){
+void removeFileFromList(FileCache* fileCache, FileList** fileList, const char* filename){
 	FileList* list = *fileList;
 	if(list == NULL){
 		return;
@@ -127,6 +162,8 @@ void removeFileFromList(FileList** fileList, const char* filename){
 	if(strcmp(list->file->filename, filename) == 0){
 		*fileList = list->next;
 		list->next = NULL;
+		fileCache->current.size -= getFileSize(list->file);
+		fileCache->current.fileNumber--;
 		freeFileList(&list);
 		return;
 	}
@@ -134,6 +171,8 @@ void removeFileFromList(FileList** fileList, const char* filename){
 		if(strcmp(list->next->file->filename, filename) == 0){
 			FileList* tmp = list->next->next;
 			list->next->next = NULL;
+			fileCache->current.size -= getFileSize(list->next->file);
+			fileCache->current.fileNumber--;
 			freeFileList(&(list->next));
 			list->next = tmp;
 			return;
@@ -143,5 +182,5 @@ void removeFileFromList(FileList** fileList, const char* filename){
 }
 
 void removeFileFromCache(FileCache* fileCache, const char* filename){
-	removeFileFromList(&(fileCache->files), filename);
+	removeFileFromList(fileCache, &(fileCache->files), filename);
 }

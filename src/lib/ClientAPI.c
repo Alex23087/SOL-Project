@@ -6,9 +6,7 @@
 #include <time.h>
 #include <errno.h>
 #include <fcntl.h>
-#include <malloc.h>
 #include <sys/stat.h>
-#include <libgen.h>
 #include <stdlib.h>
 
 #include "../include/ClientAPI.h"
@@ -17,6 +15,7 @@
 #include "../include/defines.h"
 #include "../include/FileCachingProtocol.h"
 #include "../include/ion.h"
+#include "../include/PathUtils.h"
 
 //Open connections key value list, useful if the API is extended to handle more connections
 static ArgsList* openConnections = NULL;
@@ -220,20 +219,35 @@ int readFile(const char* pathname, void** buf, size_t* size){
 	return success ? 0 : -1;
 }
 
-char* replaceBasename(const char* dirname, char* filename){
-	size_t dirnameLen = strlen(dirname);
-	bool shouldAppendSeparator = (dirname[dirnameLen - 1] != '/');
+int receiveAndSaveFileFromServer(size_t filesize, const char* filename, const char* dirname){
+	printf("Receiving file from server (filename: \"%s\", bytes: %zu)\n", filename, filesize);
+	size_t size = filesize;
+	char* fileBuffer = malloc(size);
+	ssize_t fileSize = readn(activeConnectionFD, fileBuffer, size);
+	printf("Received file from server, (%ld bytes)\n", fileSize);
 	
-	const char* fileBasename = basename(filename);
-	size_t nameLength = strlen(dirname) + strlen(fileBasename) + 1 + shouldAppendSeparator;
-	char* fullName = malloc(nameLength);
-	memset(fullName, 0, nameLength);
-	strcpy(fullName, dirname);
-	if(shouldAppendSeparator){
-		strcat(fullName, "/");
+	if(size != fileSize){
+		errno = EPROTO;
+		return -1;
 	}
-	strcat(fullName, fileBasename);
-	return fullName;
+	
+	if(dirname != NULL){
+		char* newFileName = replaceBasename(dirname, (char*)filename);
+		printf("Filename: %s\n", newFileName);
+		int fileDescriptor = open(newFileName, O_CREAT | O_WRONLY | O_TRUNC, 0644);
+		if(fileDescriptor == -1){
+			free(newFileName);
+			return -1;
+		}
+		writen(fileDescriptor, fileBuffer, fileSize);
+		close(fileDescriptor);
+		printf("File saved to: %s\n", newFileName);
+		free(newFileName);
+	}else{
+		printf("Save directory not specified, not saving file\n");
+	}
+	free(fileBuffer);
+	return 0;
 }
 
 int readNFiles(int N, const char* dirname){
@@ -257,35 +271,9 @@ int readNFiles(int N, const char* dirname){
 		switch(message->op){
 			case FCP_WRITE:{
 				//Server will send a file
-				printf("Receiving file from server (filename: \"%s\", bytes: %d)\n", message->filename, message->control);
-				size_t size = message->control;
-				char* fileBuffer = malloc(size);
-				ssize_t fileSize = readn(activeConnectionFD, fileBuffer, size);
-				printf("Received file from server, (%ld bytes)\n", fileSize);
-				
-				if(size != fileSize){
-					errno = EPROTO;
+				if(receiveAndSaveFileFromServer(message->control, message->filename, dirname)){
 					success = false;
-					break;
 				}
-				
-				if(dirname != NULL){
-					char* newFileName = replaceBasename(dirname, message->filename);
-					printf("Filename: %s\n", newFileName);
-					int fileDescriptor = open(newFileName, O_CREAT | O_WRONLY | O_TRUNC, 0644);
-					if(fileDescriptor == -1){
-						success = false;
-						free(newFileName);
-						break;
-					}
-					writen(fileDescriptor, fileBuffer, fileSize);
-					close(fileDescriptor);
-					printf("File saved to: %s\n", newFileName);
-					free(newFileName);
-				}else{
-					printf("Save directory not specified, not saving file\n");
-				}
-				free(fileBuffer);
 				break;
 			}
 			case FCP_ACK:{
@@ -354,10 +342,10 @@ int writeFile(const char* pathname, const char* dirname){
 	
 		bool receivingCacheMissFiles = false;
 		char fcpBuffer[FCP_MESSAGE_LENGTH];
-		do{
-			readn(activeConnectionFD, fcpBuffer, FCP_MESSAGE_LENGTH);
-			FCPMessage* message = fcpMessageFromBuffer(fcpBuffer);
-	
+		ssize_t bytesRead = readn(activeConnectionFD, fcpBuffer, FCP_MESSAGE_LENGTH);
+		FCPMessage* message = fcpMessageFromBuffer(fcpBuffer);
+
+		while(bytesRead != 0){
 			switch(message->op){
 				case FCP_ACK:{
 					receivingCacheMissFiles = false;
@@ -370,7 +358,7 @@ int writeFile(const char* pathname, const char* dirname){
 					if(readn(activeConnectionFD, fcpBuffer, FCP_MESSAGE_LENGTH) == FCP_MESSAGE_LENGTH){
 						free(message);
 						message = fcpMessageFromBuffer(fcpBuffer);
-			
+		
 						switch(message->op) {
 							case FCP_ACK:{
 								printf("Received ack from server, operation completed successfully\n");
@@ -391,8 +379,11 @@ int writeFile(const char* pathname, const char* dirname){
 					break;
 				}
 				case FCP_WRITE:{
-					//TODO: Receive files
 					receivingCacheMissFiles = true;
+					//Server will send a file
+					if(receiveAndSaveFileFromServer(message->control, message->filename, dirname)){
+						success = false;
+					}
 					break;
 				}
 				case FCP_ERROR:{
@@ -406,9 +397,15 @@ int writeFile(const char* pathname, const char* dirname){
 					break;
 				}
 			}
-	
+			if(!success || !receivingCacheMissFiles){
+				break;
+			}
+			bytesRead = readn(activeConnectionFD, fcpBuffer, FCP_MESSAGE_LENGTH);
 			free(message);
-		}while(success && receivingCacheMissFiles);
+			message = fcpMessageFromBuffer(fcpBuffer);
+		}
+
+		free(message);
 		free(absolutePathname);
 	}
 	
