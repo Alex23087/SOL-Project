@@ -276,7 +276,9 @@ void* workerThread(void* arg){
 		}
 		
 		//Serve connection
+#ifdef DEBUG
 		printf("[Worker #%d]: Serving client on descriptor %d\n", workerID, fdToServe);
+#endif
 		pthread_rwlock_rdlock_error(&clientListLock, "Error while locking client list");
 		ConnectionStatus status = clientListGetStatus(clientList, fdToServe);
 		pthread_rwlock_unlock_error(&clientListLock, "Error while unlocking client list");
@@ -1060,7 +1062,9 @@ int onW2MMessageReceived(int serverSocketDescriptor, fd_set* selectFdSet, int* m
 		case W2M_CLIENT_SERVED:{
 			//A worker has served the client's request, add back client to the set of fds to listen to
 			int clientFd = getIntFromW2MMessage(buffer);
+#ifdef DEBUG
 			printf("[Master]: Client %d has been served, adding it back to select set\n", clientFd);
+#endif
 			addToFdSetUpdatingMax(clientFd, selectFdSet, maxFd);
 			break;
 		}

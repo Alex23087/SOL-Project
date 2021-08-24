@@ -2,6 +2,7 @@
 #define SOL_PROJECT_CLIENTAPI_H
 
 #include <stddef.h>
+#include <bits/types/struct_timespec.h>
 
 #define O_CREATE 1
 #define O_LOCK 2
