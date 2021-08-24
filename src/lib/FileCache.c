@@ -37,6 +37,10 @@ FileCache* initFileCache(unsigned int maxFiles, unsigned long maxSize){
 	FileCache* out = malloc(sizeof(FileCache));
 	out->max.fileNumber = maxFiles;
 	out->max.size = maxSize;
+	out->current.size = 0;
+	out->current.fileNumber = 0;
+	out->maxReached.size = 0;
+	out->maxReached.fileNumber = 0;
 	out->files = NULL;
 	return out;
 }

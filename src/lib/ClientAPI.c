@@ -306,7 +306,7 @@ int readNFiles(int N, const char* dirname){
 	free(message);
 	return success ? 0 : -1;
 }
-
+ 
 int writeFile(const char* pathname, const char* dirname){
 	if(activeConnectionFD == -1){
 		//Function called without an active connection
@@ -474,8 +474,11 @@ int appendToFile(const char* pathname, void* buf, size_t size, const char* dirna
 						break;
 					}
 					case FCP_WRITE:{
-						//TODO: Receive files
 						receivingCacheMissFiles = true;
+						//Server will send a file
+						if(receiveAndSaveFileFromServer(message->control, message->filename, dirname)){
+							success = false;
+						}
 						break;
 					}
 					case FCP_ERROR:{

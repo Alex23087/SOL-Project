@@ -67,6 +67,9 @@ void clientListRemove(ClientList** list, int descriptor){
 	}
 	if(current->descriptor == descriptor){
 		current = (*list)->next;
+		if((*list)->status.data.filename != NULL){
+			free((*list)->status.data.filename);
+		}
 		free(*list);
 		*list = current;
 		return;
@@ -79,6 +82,9 @@ void clientListRemove(ClientList** list, int descriptor){
 	}
 	
 	ClientList* tmp = current->next->next;
+	if(current->next->status.data.filename != NULL){
+		free(current->next->status.data.filename);
+	}
 	free(current->next);
 	current->next = tmp;
 }
