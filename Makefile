@@ -61,7 +61,7 @@ hupserver:
 
 test1: cleantest1
 	(mkdir -p ./tests/test1/tmp && sleep 2 && ./tests/test1/startClients.sh) &
-	valgrind --leak-check=full --show-leak-kinds=all --track-origins=yes -s ./server -c tests/test1/config.txt
+	valgrind --leak-check=full --show-leak-kinds=all --track-origins=yes ./server -c tests/test1/config.txt
 
 cleantest1:
 	rm -rf ./tests/test1/files/tmp

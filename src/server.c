@@ -1105,9 +1105,7 @@ int onNewConnectionReceived(int serverSocketDescriptor, fd_set* selectFdSet, int
 		perror("Error while accepting a new connection");
 		return -1;
 	}
-#ifdef DEBUG
-	serverLog("[Master]: Incoming connection received, client descriptor: %d\n", newClientDescriptor);
-#endif
+	serverLog("[Master]: New client connected, client descriptor: %d\n", newClientDescriptor);
 	addToFdSetUpdatingMax(newClientDescriptor, selectFdSet, maxFd);
 	
 	pthread_rwlock_wrlock_error(&clientListLock, "Error while locking client list");
@@ -1167,7 +1165,7 @@ int onW2MMessageReceived(int serverSocketDescriptor, fd_set* selectFdSet, int* m
 			pthread_rwlock_wrlock_error(&clientListLock, "Error while locking client list");
 			clientListRemove(&clientList, clientFd);
 			pthread_rwlock_unlock_error(&clientListLock, "Error while unlocking client list");
-			serverLog("[Master]: Client %d removed from list of connected clients\n",clientFd);
+			serverLog("[Master]: Client %d disconnected\n",clientFd);
 			
 			//Unlock files locked by the client
 			pthread_rwlock_wrlock_error(&fileCacheLock, "Error while locking file cache");
