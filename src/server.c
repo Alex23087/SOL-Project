@@ -1,22 +1,22 @@
+#include <errno.h>
+#include <fcntl.h>
 #include <getopt.h>
-#include <stdio.h>
-#include <unistd.h>
 #include <pthread.h>
 #include <signal.h>
+#include <stdarg.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include <sys/socket.h>
 #include <sys/un.h>
-#include <errno.h>
-#include <stdlib.h>
-#include <stdarg.h>
-#include <fcntl.h>
+#include <unistd.h>
 
-#include "include/defines.h"
-#include "include/ParseUtils.h"
-#include "include/ion.h"
-#include "include/Queue.h"
-#include "include/FileCachingProtocol.h"
 #include "include/ClientAPI.h"
+#include "include/defines.h"
 #include "include/FileCache.h"
+#include "include/FileCachingProtocol.h"
+#include "include/ion.h"
+#include "include/ParseUtils.h"
+#include "include/Queue.h"
 
 #define MAX_BACKLOG 10
 #define W2M_MESSAGE_LENGTH 5

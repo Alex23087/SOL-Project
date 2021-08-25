@@ -3,6 +3,8 @@
 
 #include <stdio.h>
 
+
+
 typedef enum ArgsType{
     String,
     Long
@@ -15,16 +17,18 @@ typedef struct ArgsList{
     struct ArgsList* next;
 } ArgsList;
 
-ArgsList* initArgsListNode();
 
-ArgsList* readConfigFile(const char* filename);
 
 void freeArgsListNode(ArgsList* node);
 
-ArgsList* getNodeForKey(ArgsList* list, const char* key);
-
 long getLongValue(ArgsList* list, const char* key);
 
+ArgsList* getNodeForKey(ArgsList* list, const char* key);
+
 char* getStringValue(ArgsList* list, const char* key);
+
+ArgsList* initArgsListNode();
+
+ArgsList* readConfigFile(const char* filename);
 
 #endif //SOL_PROJECT_PARSEUTILS_H

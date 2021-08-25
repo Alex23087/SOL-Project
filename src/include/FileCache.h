@@ -2,12 +2,15 @@
 #define SOL_PROJECT_FILECACHE_H
 
 #include <malloc.h>
-#include <string.h>
 #include <pthread.h>
+#include <string.h>
+
 #include "defines.h"
 #include "FileCachingProtocol.h"
 
 #define MAX_FILENAME_SIZE FCP_MESSAGE_LENGTH - 5
+
+
 
 typedef struct CachedFile{
 	char* filename;
@@ -40,6 +43,8 @@ typedef struct FileCache{
 	FileList* files;
 	CacheAlgorithm cacheAlgorithm;
 } FileCache;
+
+
 
 bool canFitNewData(FileCache* fileCache, const char* filename, size_t dataSize, bool append);
 

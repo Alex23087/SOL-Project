@@ -2,9 +2,18 @@
 #define SOL_PROJECT_FILECACHINGPROTOCOL_H
 
 #define FCP_MESSAGE_LENGTH 256
+#define FCP_MAX_FILENAME_SIZE FCP_MESSAGE_LENGTH - 5
 
 #include <stdint.h>
+
 #include "defines.h"
+
+#define O_CREATE 1
+#define O_LOCK 2
+#define FCP_OPEN_FLAG_ISSET(flags, flagToCheck) \
+	(((flags) | (flagToCheck)) == (flags))
+
+
 
 typedef enum ClientOperation{
 	Connected,
@@ -51,53 +60,42 @@ typedef enum FCPOpcode{
 	FCP_ERROR
 } FCPOpcode;
 
-#define O_CREATE 1
-#define O_LOCK 2
-
-#define FCP_OPEN_FLAG_ISSET(flags, flagToCheck) \
-	(((flags) | (flagToCheck)) == (flags))
-
 #pragma pack(1)
 //The pragma directive shouldn't be needed, the struct is ordered in a way that should
 // result in the correct alignment. However, better include it to be sure
 typedef struct FCPMessage{
 	int32_t control;
 	char op;
-	char filename[251];
+	char filename[FCP_MAX_FILENAME_SIZE];
 } FCPMessage;
 #pragma pack() //Resetting previous packing settings
 
-FCPMessage* fcpMessageFromBuffer(char buffer[256]);
 
-char* fcpBufferFromMessage(FCPMessage message);
-
-FCPMessage* fcpMakeMessage(FCPOpcode operation, int32_t size, char* filename);
-
-void fcpSend(FCPOpcode operation, int32_t size, char* filename, int fd);
 
 void clientListAdd(ClientList** list, int descriptor);
+
+ConnectionStatus clientListGetStatus(ClientList* list, int descriptor);
 
 void clientListRemove(ClientList** list, int descriptor);
 
 void clientListUpdateStatus(ClientList* list, int descriptor, ConnectionStatus status);
 
-ConnectionStatus clientListGetStatus(ClientList* list, int descriptor);
-/*
-OpenFilesList* getFileListForDescriptor(ClientList* list, int descriptor);
-
-bool isFileOpen(OpenFilesList* list, const char* filename);
-
-void addOpenFile(OpenFilesList** list, const char* filename);
-*/
-
-bool isFileOpenedByClient(ClientList* list, const char* filename, int descriptor);
-
-void setFileOpened(ClientList* list, int descriptor, const char* filename);
-
-void setFileClosed(ClientList* list, int descriptor, const char* filename);
-
 void closeAllFiles(ClientList* list, int descriptor);
 
 void closeFileForEveryone(ClientList* list, const char* filename);
+
+char* fcpBufferFromMessage(FCPMessage message);
+
+FCPMessage* fcpMakeMessage(FCPOpcode operation, int32_t size, char* filename);
+
+FCPMessage* fcpMessageFromBuffer(char buffer[FCP_MESSAGE_LENGTH]);
+
+void fcpSend(FCPOpcode operation, int32_t size, char* filename, int fd);
+
+bool isFileOpenedByClient(ClientList* list, const char* filename, int descriptor);
+
+void setFileClosed(ClientList* list, int descriptor, const char* filename);
+
+void setFileOpened(ClientList* list, int descriptor, const char* filename);
 
 #endif //SOL_PROJECT_FILECACHINGPROTOCOL_H

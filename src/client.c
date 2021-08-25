@@ -1,19 +1,21 @@
+#include <ctype.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <ftw.h>
+#include <libgen.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <unistd.h>
-#include <errno.h>
 #include <string.h>
-#include <ctype.h>
-#include <fcntl.h>
 #include <sys/stat.h>
-#include <libgen.h>
-#include <ftw.h>
+#include <unistd.h>
 
 #include "include/ClientAPI.h"
 #include "include/defines.h"
-#include "include/Queue.h"
 #include "include/ion.h"
 #include "include/PathUtils.h"
+#include "include/Queue.h"
+
+
 
 typedef enum ClientOperation{
 	WriteFile,
@@ -32,14 +34,20 @@ typedef union ClientParameter{
 } ClientParameter;
 
 typedef struct ClientCommand{
-	ClientOperation op;
-	ClientParameter parameter;
+    ClientOperation op;
+    ClientParameter parameter;
 } ClientCommand;
 
-unsigned long filesToSend;
-char* cacheMissFolderPath = NULL;
 
-int clientWriteFile (const char* fpath, const struct stat* sb, int typeflag);
+
+static int clientWriteFile (const char* fpath, const struct stat* sb, int typeflag);
+
+
+
+static unsigned long filesToSend;
+static char* cacheMissFolderPath = NULL;
+
+
 
 #ifdef IDE
 int clientMain(int argc, char** argv){
@@ -505,7 +513,7 @@ int clientMain(int argc, char** argv){
 	return 0;
 }
 
-int clientWriteFile (const char* fpath, const struct stat* sb, int typeflag){
+static int clientWriteFile (const char* fpath, const struct stat* sb, int typeflag){
 	if(filesToSend != 1){
 		if(typeflag == FTW_F){
 			if(openFile(fpath, O_CREATE | O_LOCK)){
