@@ -52,7 +52,7 @@ static char* cacheMissFolderPath = NULL;
 #ifdef IDE
 int clientMain(int argc, char** argv){
 #else
-	int main(int argc, char** argv){
+int main(int argc, char** argv){
 #endif
 	char opt;
 	opterr = 0;
