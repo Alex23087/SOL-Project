@@ -1,5 +1,5 @@
 #include "../include/FileCache.h"
-
+#include "../include/miniz.h"
 
 
 static void addFile(FileList** list, CachedFile* file){
@@ -121,7 +121,6 @@ CachedFile* getFileLockedByClient(FileCache* fileCache, int clientFd){
 }
 
 size_t getFileSize(CachedFile* file){
-    //TODO: Implement compression
     return file->size;
 }
 
@@ -151,7 +150,7 @@ const char* getFileToEvict(FileCache* fileCache, const char* fileToExclude){
     return current->file->filename;
 }
 
-FileCache* initFileCache(unsigned int maxFiles, unsigned long maxSize){
+FileCache* initFileCache(unsigned int maxFiles, unsigned long maxSize, CompressionAlgorithm compressionAlgorithm){
 	FileCache* out = malloc(sizeof(FileCache));
 	out->max.fileNumber = maxFiles;
 	out->max.size = maxSize;
@@ -161,15 +160,36 @@ FileCache* initFileCache(unsigned int maxFiles, unsigned long maxSize){
 	out->maxReached.fileNumber = 0;
 	out->filesEvicted = 0;
 	out->files = NULL;
+	out->compressionAlgorithm = compressionAlgorithm;
 	return out;
 }
 
 char* readCachedFile(CachedFile* file, char** buffer, size_t* size){
-	//TODO: Implement compression
-	*size = getFileSize(file);
-	*buffer = malloc(*size);
-	memcpy(*buffer, file->contents, *size); //Not needed if the file is not compressed, added for future extension
-	return *buffer;
+	switch(file->compression){
+		case Miniz:{
+			*size = file->uncompressedSize;
+			*buffer = malloc(file->uncompressedSize);
+			int decompressionResult = uncompress((unsigned char*)*buffer, size, (const unsigned char*)(file->contents), getFileSize(file));
+			if(decompressionResult != Z_OK){
+				//There has been an error, send the file buffer as is
+				free(*buffer);
+				*size = getFileSize(file);
+				*buffer = malloc(*size);
+				memcpy(*buffer, file->contents, *size);
+				return *buffer;
+			}else{
+				//Decompression successful
+				return *buffer;
+			}
+		}
+		case None:
+		default:{
+			*size = getFileSize(file);
+			*buffer = malloc(*size);
+			memcpy(*buffer, file->contents, *size);
+			return *buffer;
+		}
+	}
 }
 
 void removeFileFromCache(FileCache* fileCache, const char* filename){
@@ -178,14 +198,51 @@ void removeFileFromCache(FileCache* fileCache, const char* filename){
 }
 
 size_t storeFile(FileCache* fileCache, CachedFile* file, char* contents, size_t size){
-    //TODO: Implement compression
     fileCache->current.size -= getFileSize(file);
-    fileCache->current.size += size;
-    if(fileCache->current.size > fileCache->maxReached.size){
-        fileCache->maxReached.size = fileCache->current.size;
-    }
-
-    file->size = size;
-    file->contents = contents;
-    return sizeof(contents);
+	
+	switch(fileCache->compressionAlgorithm) {
+		case Miniz:{
+			//Miniz (zlib) compression
+			unsigned long compressedSize = compressBound(size);
+			char* compressedBuffer = malloc(compressedSize);
+			int compressionStatus = compress((unsigned char*)compressedBuffer, &compressedSize, (const unsigned char*)contents, size);
+			if(compressionStatus != Z_OK || compressedSize > size){
+				//Error while compressing, or the compressed file is bigger
+				//than the non compressed one. Save the file as uncompressed
+				free(compressedBuffer);
+				fileCache->current.size += size;
+				if(fileCache->current.size > fileCache->maxReached.size){
+					fileCache->maxReached.size = fileCache->current.size;
+				}
+				file->size = size;
+				file->contents = contents;
+				file->compression = None;
+				return size;
+			}else{
+				//Compression successful
+				free(contents);
+				fileCache->current.size += compressedSize;
+				if(fileCache->current.size > fileCache->maxReached.size){
+					fileCache->maxReached.size = fileCache->current.size;
+				}
+				file->size = compressedSize;
+				file->uncompressedSize = size;
+				file->contents = compressedBuffer;
+				file->compression = Miniz;
+				return compressedSize;
+			}
+		}
+		case None:
+		default:{
+			//Compression not enabled
+			fileCache->current.size += size;
+			if(fileCache->current.size > fileCache->maxReached.size){
+				fileCache->maxReached.size = fileCache->current.size;
+			}
+			file->size = size;
+			file->contents = contents;
+			file->compression = None;
+			return size;
+		}
+	}
 }

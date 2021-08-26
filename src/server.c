@@ -526,6 +526,7 @@ static void* workerThread(void* arg){
                     //Save file
                     CachedFile* file = getFileL(status.data.filename);
                     if(file != NULL){
+                    	size_t storedSize = 0;
                         pthread_mutex_lock_error(file->lock, "Error while locking file");
                         if(file->lockedBy != fdToServe){
                             //File is not locked by this process
@@ -542,10 +543,15 @@ static void* workerThread(void* arg){
                                 storeFile(fileCache, file, fileBuffer, fileSize + bytesRead);
                             }else{
                                 free(file->contents);
-                                storeFile(fileCache, file, buffer, fileSize);
+                                storedSize = storeFile(fileCache, file, buffer, fileSize);
                             }
                         }
                         pthread_mutex_unlock_error(file->lock, "Error while unlocking file");
+                        if(storedSize == fileSize){
+	                        serverLog("[Worker #%d]: File not compressed\n", workerID);
+                        }else{
+                        	serverLog("[Worker #%d]: File has been compressed, old size: %lu bytes, new size: %lu bytes\n", workerID, fileSize, storedSize);
+                        }
                     }else{
                         //File does not exist
                         error = ENOENT;
@@ -809,7 +815,7 @@ int main(int argc, char** argv){
 	}
 	
 	
-	fileCache = initFileCache(maxFiles, storageSize);
+	fileCache = initFileCache(maxFiles, storageSize, Miniz);
 	
 	//Creating server listen socket
 	int serverSocketDescriptor = -1;

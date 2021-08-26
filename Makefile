@@ -8,7 +8,7 @@ all: client server
 
 
 
-server: build build/server.o build/ParseUtils.o build/ion.o build/queue.o build/FileCachingProtocol.o build/FileCache.o build/ServerLib.o build/W2M.o
+server: build build/server.o build/ParseUtils.o build/ion.o build/queue.o build/FileCachingProtocol.o build/FileCache.o build/ServerLib.o build/W2M.o build/miniz.o
 	$(CC) $(CFLAGS) -pthread $(filter-out $<,$^) -o $@
 
 client: build ./build/client.o build/ClientAPI.o build/timespecUtils.o build/ParseUtils.o build/ion.o build/FileCachingProtocol.o build/queue.o build/PathUtils.o
@@ -32,6 +32,9 @@ build/FileCachingProtocol.o: src/lib/FileCachingProtocol.c
 	$(CC) $(CFLAGS) $^ -c -o $@
 
 build/ion.o: src/lib/ion.c
+	$(CC) $(CFLAGS) $^ -c -o $@
+
+build/miniz.o: src/lib/miniz.c
 	$(CC) $(CFLAGS) $^ -c -o $@
 
 build/ParseUtils.o: src/lib/ParseUtils.c

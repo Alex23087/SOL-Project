@@ -11,13 +11,19 @@
 #define MAX_FILENAME_SIZE FCP_MESSAGE_LENGTH - 5
 
 
+typedef enum CompressionAlgorithm{
+	None,
+	Miniz
+} CompressionAlgorithm;
 
 typedef struct CachedFile{
 	char* filename;
 	char* contents;
 	size_t size;
+	size_t uncompressedSize;
 	int lockedBy;
 	pthread_mutex_t* lock;
+	CompressionAlgorithm compression;
 } CachedFile;
 
 typedef struct FileList{
@@ -42,6 +48,7 @@ typedef struct FileCache{
 	FileList* files;
 	CacheAlgorithm cacheAlgorithm;
 	unsigned int filesEvicted;
+	CompressionAlgorithm compressionAlgorithm;
 } FileCache;
 
 
@@ -64,7 +71,7 @@ size_t getFileSize(CachedFile* file);
 
 const char* getFileToEvict(FileCache* fileCache, const char* fileToExclude);
 
-FileCache* initFileCache(unsigned int maxFiles, unsigned long maxSize);
+FileCache* initFileCache(unsigned int maxFiles, unsigned long maxSize, CompressionAlgorithm compressionAlgorithm);
 
 char* readCachedFile(CachedFile* file, char** buffer, size_t* size);
 
