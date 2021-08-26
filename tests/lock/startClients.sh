@@ -12,10 +12,20 @@ sleep 1
 ./client -f /tmp/LSOfilestorage.sk -p -t 1000 -l $FILE1 -u $FILE1&
 ./client -f /tmp/LSOfilestorage.sk -p -t 1000 -l $FILE1 -u $FILE1&
 ./client -f /tmp/LSOfilestorage.sk -p -t 1000 -l $FILE1 -u $FILE1&
+./client -f /tmp/LSOfilestorage.sk -p -t 500 -l $FILE1 -c $FILE1&
 ./client -f /tmp/LSOfilestorage.sk -p -t 1000 -l $FILE1 -u $FILE1&
 ./client -f /tmp/LSOfilestorage.sk -p -t 1000 -l $FILE1 -u $FILE1&
 ./client -f /tmp/LSOfilestorage.sk -p -t 1000 -l $FILE1 -u $FILE1&
-./client -f /tmp/LSOfilestorage.sk -p -t 1000 -l $FILE1 -u $FILE1
+./client -f /tmp/LSOfilestorage.sk -p -t 1000 -l $FILE1 -u $FILE1&
 
+wait
+wait
+wait
+wait
+wait
+wait
+wait
+wait
+wait
 
 make hupserver

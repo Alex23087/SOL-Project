@@ -78,33 +78,6 @@ static void* signalHandlerThread(void* arg){
 	return 0;
 }
 
-int getClientWaitingForLockL(const char* filename){
-	int out = -1;
-	pthread_rwlock_wrlock_error(&clientListLock, "Error while locking on client list");
-	ClientList* current = clientList;
-	while(current != NULL){
-		if(current->status.op == WaitingForLock && strcmp(current->status.data.filename, filename) == 0){
-			out = current->descriptor;
-			break;
-		}
-		current = current->next;
-	}
-	pthread_rwlock_unlock_error(&clientListLock, "Error while unlocking on client list");
-	return out;
-}
-
-void serverSignalFileUnlockL(CachedFile* file, int workerID, int desc){
-	serverLog("[Worker #%d]: Passing lock to client %d\n", workerID, desc);
-	pthread_mutex_lock_error(file->lock, "Error while locking file");
-	if(file->lockedBy == -1){
-		file->lockedBy = desc;
-	}
-	pthread_mutex_unlock_error(file->lock, "Error while unlocking file");
-	updateClientStatusL(Connected, 0, NULL, desc);
-	fcpSend(FCP_ACK, 0, NULL, desc);
-	serverLog("[Worker #%d]: Client %d successfully locked the file\n", workerID, desc);
-	w2mSend(W2M_CLIENT_SERVED, desc);
-}
 
 //Worker thread
 static void* workerThread(void* arg){
@@ -199,7 +172,7 @@ static void* workerThread(void* arg){
                                         free(evictedFileBuffer);
                                         serverLog("[Worker #%d]: Sent file to client %d, %ld bytes transferred\n", workerID, fdToServe, bytesSent);
                                         pthread_mutex_unlock_error(evictedFile->lock, "Error while unlocking file");
-                                        serverRemoveFile(evictedFileName);
+                                        serverRemoveFile(evictedFileName, workerID);
                                     }
                                 }
                                 pthread_mutex_unlock_error(file->lock, "Error while unlocking on file");
@@ -469,7 +442,7 @@ static void* workerThread(void* arg){
                                     pthread_mutex_unlock_error(file->lock, "Error while unlocking file");
 
                                     if(isFileLockedByClient){
-                                        serverRemoveFileL(fcpMessage->filename);
+                                        serverRemoveFileL(fcpMessage->filename, workerID);
                                         serverLog("[Worker #%d]: Client %d successfully removed file with filename: %s\n", workerID, fdToServe, fcpMessage->filename);
                                         fcpSend(FCP_ACK, 0, NULL, fdToServe);
                                     }else{
@@ -671,6 +644,7 @@ static int workerDisconnectClient(int workerN, int fdToServe){
 		return 0;
 	}
 }
+
 
 //Logging thread
 static void* loggingThread(void* arg){
@@ -959,6 +933,7 @@ int main(int argc, char** argv){
 	
 	
 	//Cleanup
+	freeClientList(&clientList);
 	
 	//It's safe to join on the signal handler, as the only way to terminate the server is for a signal to happen
 	//and in that case the signal handler terminates

@@ -30,6 +30,31 @@ int logPipeDescriptors[2];
 
 
 
+static void sendErrorToAllClientsWaitingForLock(ClientList* clientList, const char* filename, int workerID){
+	ClientList* current = clientList;
+	if(current == NULL){
+		return;
+	}
+	
+	ConnectionStatus connectedStatus;
+	connectedStatus.op = Connected;
+	connectedStatus.data.filesToRead = 0;
+	connectedStatus.data.messageLength = 0;
+	connectedStatus.data.filename = NULL;
+	
+	while(current != NULL){
+		if(current->status.op == WaitingForLock && strcmp(current->status.data.filename, filename) == 0){
+			serverLog("[Worker #%d]: Client %d was waiting for lock, sending error\n", workerID, current->descriptor);
+			clientListUpdateStatus(clientList, current->descriptor, connectedStatus);
+			fcpSend(FCP_ERROR, ENOENT, NULL, current->descriptor);
+			w2mSend(W2M_CLIENT_SERVED, current->descriptor);
+		}
+		current = current->next;
+	}
+}
+
+
+
 void addToFdSetUpdatingMax(int fd, fd_set* fdSet, int* maxFd){
     FD_SET(fd, fdSet);
     if(fd > *maxFd){
@@ -42,6 +67,21 @@ bool fileExistsL(const char* filename){
     bool exists = fileExists(fileCache, filename);
     pthread_rwlock_unlock_error(&fileCacheLock, "Error while unlocking on file cache");
     return exists;
+}
+
+int getClientWaitingForLockL(const char* filename){
+	int out = -1;
+	pthread_rwlock_wrlock_error(&clientListLock, "Error while locking on client list");
+	ClientList* current = clientList;
+	while(current != NULL){
+		if(current->status.op == WaitingForLock && strcmp(current->status.data.filename, filename) == 0){
+			out = current->descriptor;
+			break;
+		}
+		current = current->next;
+	}
+	pthread_rwlock_unlock_error(&clientListLock, "Error while unlocking on client list");
+	return out;
 }
 
 CachedFile* getFileL(const char* filename){
@@ -145,20 +185,35 @@ void serverLog(const char* format, ...){
     va_end(args);
 }
 
-void serverRemoveFile(const char* filename){
+void serverRemoveFile(const char* filename, int workerID){
 	pthread_rwlock_wrlock_error(&clientListLock, "Error while locking on client list");
 	closeFileForEveryone(clientList, filename);
+	sendErrorToAllClientsWaitingForLock(clientList, filename, workerID);
 	pthread_rwlock_unlock_error(&clientListLock, "Error while unlocking on client list");
 	removeFileFromCache(fileCache, filename);
 }
 
-void serverRemoveFileL(const char* filename){
+void serverRemoveFileL(const char* filename, int workerID){
     pthread_rwlock_wrlock_error(&clientListLock, "Error while locking on client list");
     closeFileForEveryone(clientList, filename);
+    sendErrorToAllClientsWaitingForLock(clientList, filename, workerID);
     pthread_rwlock_unlock_error(&clientListLock, "Error while unlocking on client list");
     pthread_rwlock_wrlock_error(&fileCacheLock, "Error while locking on file cache");
     removeFileFromCache(fileCache, filename);
     pthread_rwlock_unlock_error(&fileCacheLock, "Error while unlocking on file cache");
+}
+
+void serverSignalFileUnlockL(CachedFile* file, int workerID, int desc){
+	serverLog("[Worker #%d]: Passing lock to client %d\n", workerID, desc);
+	pthread_mutex_lock_error(file->lock, "Error while locking file");
+	if(file->lockedBy == -1){
+		file->lockedBy = desc;
+	}
+	pthread_mutex_unlock_error(file->lock, "Error while unlocking file");
+	updateClientStatusL(Connected, 0, NULL, desc);
+	fcpSend(FCP_ACK, 0, NULL, desc);
+	serverLog("[Worker #%d]: Client %d successfully locked the file\n", workerID, desc);
+	w2mSend(W2M_CLIENT_SERVED, desc);
 }
 
 void unlockAllFilesLockedByClient(FileCache* fileCache, int clientFd){

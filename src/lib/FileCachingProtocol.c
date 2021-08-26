@@ -198,6 +198,14 @@ void fcpSend(FCPOpcode operation, int32_t size, char* filename, int fd){
 	free(buffer);
 }
 
+void freeClientList(ClientList** clientList){
+	if(*clientList == NULL){
+		return;
+	}
+	freeClientList(&((*clientList)->next));
+	clientListRemove(clientList, (*clientList)->descriptor);
+}
+
 bool isFileOpenedByClient(ClientList* list, const char* filename, int descriptor){
 	return isFileOpen(*getFileListForDescriptor(list, descriptor), filename);
 }

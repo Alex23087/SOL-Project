@@ -46,9 +46,9 @@ else
 
 	echo "Number of reads: $READCOUNT, average size: $READAVG bytes"
 	echo "Number of writes: $WRITECOUNT, average size: $WRITEAVG bytes"
-	echo "Number of locks acquired: $(echo "$TEXT"  | grep -c "successfully locked")"
+	echo "Number of locks explicitly acquired (locks obtained with open-lock not counted): $(echo "$TEXT"  | grep -c "successfully locked")"
 	echo "Number of open-lock operations: $(($(echo "$TEXT" | grep -c "flags: 3") + $(echo "$TEXT" | grep -c "flags: 2")))"
-	echo "Number of locks released: $(echo "$TEXT" | grep -c "successfully unlocked")"
+	echo "Number of locks explicitly released (locks released with close/remove not counted): $(echo "$TEXT" | grep -c "successfully unlocked")"
 	echo "Number of file close operations: $(echo "$TEXT" | grep -c "successfully closed the file")"
 	echo "Max size reached: $(echo "scale=4; $(echo "$TEXT" | grep "Max storage size" | grep -Eo "[0-9]*")/1024/1024" | bc -l)MB"
 	echo "Max files stored: $(echo "$TEXT" | grep "Max number of files stored" | grep -Eo "[0-9]*")"

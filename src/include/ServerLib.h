@@ -25,6 +25,8 @@ void addToFdSetUpdatingMax(int fd, fd_set* fdSet, int* maxFd);
 
 bool fileExistsL(const char* filename);
 
+int getClientWaitingForLockL(const char* filename);
+
 CachedFile* getFileL(const char* filename);
 
 bool isFileOpenedByClientL(const char* filename, int descriptor);
@@ -51,9 +53,11 @@ void removeFromFdSetUpdatingMax(int fd, fd_set* fdSet, int* maxFd);
 
 void serverLog(const char* format, ...);
 
-void serverRemoveFile(const char* filename);
+void serverRemoveFile(const char* filename, int workerID);
 
-void serverRemoveFileL(const char* filename);
+void serverRemoveFileL(const char* filename, int workerID);
+
+void serverSignalFileUnlockL(CachedFile* file, int workerID, int desc);
 
 void unlockAllFilesLockedByClient(FileCache* fileCache, int clientFd);
 

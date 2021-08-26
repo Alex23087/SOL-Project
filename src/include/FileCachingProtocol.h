@@ -92,6 +92,8 @@ FCPMessage* fcpMessageFromBuffer(char buffer[FCP_MESSAGE_LENGTH]);
 
 void fcpSend(FCPOpcode operation, int32_t size, char* filename, int fd);
 
+void freeClientList(ClientList** clientList);
+
 bool isFileOpenedByClient(ClientList* list, const char* filename, int descriptor);
 
 void setFileClosed(ClientList* list, int descriptor, const char* filename);
