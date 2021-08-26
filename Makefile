@@ -1,6 +1,6 @@
 CC = gcc
 override CFLAGS += -Wall -pedantic --std=gnu99
-.PHONY: all clean cleanall killserver hupserver test1 test2 test3 cleantest1 cleantest2 cleantest3
+.PHONY: all clean cleanall killserver hupserver testlock test1 test2 test3 cleantestlock cleantest1 cleantest2 cleantest3
 
 
 
@@ -66,16 +66,23 @@ clean:
 
 
 killserver:
-	ps -o pid,command | grep -E "(valgrind)?server" | head -n1 | grep -Eo "[0-9]{3,6}" | xargs -n1 kill -SIGTERM
+	ps -ao pid,command | grep -E "(valgrind)?server" | head -n1 | grep -Eo "[0-9]{3,6}" | xargs -n1 kill -SIGTERM
 
 hupserver:
-	ps -o pid,command | grep -E "(valgrind)?server" | head -n1 | grep -Eo "[0-9]{3,6}" | xargs -n1 kill -SIGHUP
+	ps -ao pid,command | grep -E "(valgrind)?server" | head -n1 | grep -Eo "[0-9]{3,6}" | xargs -n1 kill -SIGHUP
 
 
 
-test1: cleantest1
+testlock: cleantest1 all
+	(sleep 2 && chmod +x ./tests/lock/startClients.sh && ./tests/lock/startClients.sh) &
+	valgrind --leak-check=full --show-leak-kinds=all --track-origins=yes ./server -c tests/test1/config.txt
+
+cleantestlock: cleantest1
+
+test1: cleantest1 all
 	(mkdir -p ./tests/test1/tmp && sleep 2 && chmod +x ./tests/test1/startClients.sh && ./tests/test1/startClients.sh) &
 	valgrind --leak-check=full --show-leak-kinds=all --track-origins=yes ./server -c tests/test1/config.txt
 
 cleantest1:
 	rm -rf ./tests/test1/tmp
+

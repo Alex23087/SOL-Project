@@ -18,7 +18,6 @@ typedef struct CachedFile{
 	size_t size;
 	int lockedBy;
 	pthread_mutex_t* lock;
-	pthread_cond_t* clientLockWakeupCondition;
 } CachedFile;
 
 typedef struct FileList{

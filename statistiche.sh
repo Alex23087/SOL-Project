@@ -53,17 +53,6 @@ else
 	echo "Max size reached: $(echo "scale=4; $(echo "$TEXT" | grep "Max storage size" | grep -Eo "[0-9]*")/1024/1024" | bc -l)MB"
 	echo "Max files stored: $(echo "$TEXT" | grep "Max number of files stored" | grep -Eo "[0-9]*")"
 	echo "Num files evicted: $(echo "$TEXT" | grep "Number of files evicted" | grep -Eo "[0-9]*")"
-
-	WORKERS="$(echo "$TEXT" | grep -E "Worker #[0-9]* has served")"
-	WORKERCOUNT="$(echo "$WORKERS" | grep -c .)"
-	if [[ "WORKERCOUNT" -ne 0 ]]
-	then
-		IFS=$'\n'
-		for line in ${WORKERS//\\n/$cr}
-		do
-			echo "$line" | grep -Eo "Worker #[0-9]* has served [0-9]* requests"
-		done
-	fi
-
+	echo "$TEXT" | grep -Eo "Worker #[0-9]* has served [0-9]* requests"
 	echo "Max clients connected: $(echo "$TEXT" | grep "Max number of clients simultaneously connected" | grep -Eo "[0-9]*")"
 fi

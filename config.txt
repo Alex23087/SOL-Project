@@ -1,4 +1,4 @@
-nWorkers=4
+nWorkers=1
 maxFiles=100
 storageSize="120B"
 socketPath="/tmp/LSOfilestorage.sk"

@@ -28,15 +28,6 @@ static CachedFile* initCachedFile(const char* filename){
         return NULL;
     }
 
-    out->clientLockWakeupCondition = malloc(sizeof(pthread_cond_t));
-    if(pthread_cond_init(out->clientLockWakeupCondition, NULL)){
-        perror("Error while initializing condition variable for file");
-        free(out->lock);
-        free(out->clientLockWakeupCondition);
-        free(out);
-        return NULL;
-    }
-
     size_t len = strlen(filename);
     out->filename = malloc(len + 1);
     strncpy(out->filename, filename, len);
@@ -98,7 +89,6 @@ void freeCachedFile(CachedFile* file){
     free(file->contents);
     free(file->filename);
     free(file->lock);
-    free(file->clientLockWakeupCondition);
     free(file);
 }
 
