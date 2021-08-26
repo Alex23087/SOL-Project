@@ -26,12 +26,15 @@
 	free(logFilePath);
 
 
-
+static unsigned int clientsConnected = 0;
+static unsigned int clientsConnectedMax = 0;
+static unsigned int* requestsServed;
 static Queue* incomingConnectionsQueue = NULL;
 static pthread_mutex_t incomingConnectionsLock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t incomingConnectionsCond = PTHREAD_COND_INITIALIZER;
-static bool workersShouldTerminate = false;
 static char* logFilePath = NULL;
+static short logMode = O_APPEND;
+static bool workersShouldTerminate = false;
 
 
 
@@ -114,6 +117,7 @@ static void* workerThread(void* arg){
                         //TODO: Handle error
                     }
                 }else{
+                    requestsServed[workerID]++;
                     FCPMessage* fcpMessage = fcpMessageFromBuffer(fcpBuffer);
                     switch(fcpMessage->op){
                         case FCP_WRITE:
@@ -625,12 +629,11 @@ static int workerDisconnectClient(int workerN, int fdToServe){
 	}
 }
 
-
 //Logging thread
 static void* loggingThread(void* arg){
 	char* logBuffer = malloc(LOG_BUFFER_SIZE);
 	printf("[Logging]: Logging thread started\n");
-	int logFileDescriptor = open(logFilePath, O_CREAT | O_APPEND | O_WRONLY, 0644);
+	int logFileDescriptor = open(logFilePath, O_CREAT | logMode | O_WRONLY, 0644);
 	if(logFileDescriptor < 0){
 		perror("Error while opening log file");
 	}else{
@@ -740,6 +743,14 @@ int main(int argc, char** argv){
 				free(socketPath);
 				break;
 			}
+
+			char* logModeParameter = getStringValue(configArgs, "logMode");
+			if(logModeParameter != NULL){
+			    if(strcmp(logModeParameter, "trunc") == 0){
+                    logMode = O_TRUNC;
+                }
+                free(logModeParameter);
+			}
 		
 			char* endptr = NULL;
 			storageSize = strtoul(storageString, &endptr, 10);
@@ -847,8 +858,10 @@ int main(int argc, char** argv){
 	
 	
 	//Spawn worker threads
+	requestsServed = calloc(sizeof(unsigned int), nWorkers);
 	pthread_t workers[nWorkers];
 	for(size_t i = 0; i < nWorkers; i++){
+	    requestsServed[i] = 0;
 		if(pthread_create(&(workers[i]), NULL, workerThread, (void*)i)){
 			perror("Error while creating worker thread");
 			return -1;
@@ -907,10 +920,24 @@ int main(int argc, char** argv){
 	//It's safe to join on the signal handler, as the only way to terminate the server is for a signal to happen
 	//and in that case the signal handler terminates
 	pthread_join_error(signalHandlerThreadID, "Error while joining on signal handler thread");
+	//Join on the worker threads
 	for(size_t i = 0; i < nWorkers; i++){
 		pthread_join_error(workers[i], "Error while joining worker thread");
 	}
-	
+
+
+	//Print stats
+    serverLog("[Master]: Max storage size reached: %lu bytes\n", fileCache->maxReached.size);
+    serverLog("[Master]: Max number of files stored: %u\n", fileCache->maxReached.fileNumber);
+    serverLog("[Master]: Max number of clients simultaneously connected: %u\n", clientsConnectedMax);
+    serverLog("[Master]: Number of files evicted: %u\n", fileCache->filesEvicted);
+
+    for(size_t i = 0; i < nWorkers; i++){
+        serverLog("[Master]: Worker #%u has served %u requests\n", i, requestsServed[i]);
+    }
+    free(requestsServed);
+
+	//Send termination message and join on the log server
 	serverLog("%c", LOG_TERMINATE);
 	pthread_join_error(loggingThreadID, "Error while joining on logging thread");
 	
@@ -942,7 +969,11 @@ static int onConnectedClientMessage(int currentFd, fd_set* selectFdSet, int* max
     return 0;
 }
 
-static int onNewConnectionReceived(int serverSocketDescriptor, fd_set* selectFdSet, int* maxFd){
+static int onNewConnectionReceived(int serverSocketDescriptor, fd_set* selectFdSet, int* maxFd){    clientsConnected++;
+    if(clientsConnected > clientsConnectedMax){
+        clientsConnectedMax = clientsConnected;
+    }
+
 	int newClientDescriptor = accept(serverSocketDescriptor, NULL, NULL);
 	if(newClientDescriptor < 0){
 		perror("Error while accepting a new connection");
@@ -1003,6 +1034,7 @@ static int onW2MMessageReceived(int serverSocketDescriptor, fd_set* selectFdSet,
 			break;
 		}
 		case W2M_CLIENT_DISCONNECTED:{
+		    clientsConnected--;
 			int clientFd = getIntFromW2MMessage(buffer);
 
 			pthread_rwlock_wrlock_error(&clientListLock, "Error while locking client list");

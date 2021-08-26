@@ -12,7 +12,7 @@ else
 
 
 	READS="$(echo "$TEXT" | grep "Sent file to client")"
-	READCOUNT="$(echo "$READS" | wc -l)"
+	READCOUNT="$(echo "$READS" | grep -c .)"
 	READAVG=0
 
 	if [[ "$READCOUNT" -ne 0 ]]
@@ -28,7 +28,7 @@ else
 	fi
 
 	WRITES="$(echo "$TEXT" | grep "Received file from client")"
-	WRITECOUNT="$(echo "$WRITES" | wc -l)"
+	WRITECOUNT="$(echo "$WRITES" | grep -c .)"
 	WRITEAVG=0
 
 	if [[ "$WRITECOUNT" -ne 0 ]]
@@ -43,9 +43,27 @@ else
 		WRITEAVG=$((WRITEAVG / WRITECOUNT))
 	fi
 
+
 	echo "Number of reads: $READCOUNT, average size: $READAVG bytes"
 	echo "Number of writes: $WRITECOUNT, average size: $WRITEAVG bytes"
-	echo "Number of locks acquired: $(echo "$TEXT"  | grep -Ec "successfully locked")"
-	echo "Number of open-lock operations: $(($(echo "$TEXT" | grep -Ec "flags: 3") + $(echo "$TEXT" | grep -Ec "flags: 2")))"
-	echo "Number of locks released: $(echo "$TEXT" | grep -Ec "successfully unlocked")"
+	echo "Number of locks acquired: $(echo "$TEXT"  | grep -c "successfully locked")"
+	echo "Number of open-lock operations: $(($(echo "$TEXT" | grep -c "flags: 3") + $(echo "$TEXT" | grep -c "flags: 2")))"
+	echo "Number of locks released: $(echo "$TEXT" | grep -c "successfully unlocked")"
+	echo "Number of file close operations: $(echo "$TEXT" | grep -c "successfully closed the file")"
+	echo "Max size reached: $(echo "scale=4; $(echo "$TEXT" | grep "Max storage size" | grep -Eo "[0-9]*")/1024/1024" | bc -l)MB"
+	echo "Max files stored: $(echo "$TEXT" | grep "Max number of files stored" | grep -Eo "[0-9]*")"
+	echo "Num files evicted: $(echo "$TEXT" | grep "Number of files evicted" | grep -Eo "[0-9]*")"
+
+	WORKERS="$(echo "$TEXT" | grep -E "Worker #[0-9]* has served")"
+	WORKERCOUNT="$(echo "$WORKERS" | grep -c .)"
+	if [[ "WORKERCOUNT" -ne 0 ]]
+	then
+		IFS=$'\n'
+		for line in ${WORKERS//\\n/$cr}
+		do
+			echo "$line" | grep -Eo "Worker #[0-9]* has served [0-9]* requests"
+		done
+	fi
+
+	echo "Max clients connected: $(echo "$TEXT" | grep "Max number of clients simultaneously connected" | grep -Eo "[0-9]*")"
 fi

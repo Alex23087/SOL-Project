@@ -42,6 +42,7 @@ typedef struct FileCache{
 	FileCacheStatistics maxReached;
 	FileList* files;
 	CacheAlgorithm cacheAlgorithm;
+	unsigned int filesEvicted;
 } FileCache;
 
 

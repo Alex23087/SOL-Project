@@ -122,7 +122,7 @@ char* getStringValue(ArgsList* list, const char* key){
     ArgsList* node = getNodeForKey(list, key);
     if(node == NULL || node->type != String || node->data == NULL){
         //TODO: Handle error
-        fprintf(stderr, "Error while getting string value for key: %s\n", key);
+        //fprintf(stderr, "Error while getting string value for key: %s\n", key);
         return NULL;
     }
 

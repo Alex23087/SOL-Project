@@ -3,4 +3,4 @@ maxFiles=100
 storageSize="120B"
 socketPath="/tmp/LSOfilestorage.sk"
 logFile="/tmp/LSOfilestorage.log"
-
+logMode="trunc"

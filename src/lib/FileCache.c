@@ -81,6 +81,10 @@ bool canFitNewData(FileCache* fileCache, const char* filename, size_t dataSize, 
 }
 
 CachedFile* createFile(FileCache* fileCache, const char* filename){
+    fileCache->current.fileNumber++;
+    if(fileCache->current.fileNumber > fileCache->maxReached.fileNumber){
+        fileCache->maxReached.fileNumber = fileCache->current.fileNumber;
+    }
     CachedFile* newFile = initCachedFile(filename);
     addFile(&(fileCache->files), newFile);
     return newFile;
@@ -142,6 +146,7 @@ const char* getFileToEvict(FileCache* fileCache, const char* fileToExclude){
             return NULL;
         }
     }
+    fileCache->filesEvicted++;
     while(current->next != NULL){
         if(strcmp(current->next->file->filename, fileToExclude) == 0){
             if(current->next->next == NULL){
@@ -164,6 +169,7 @@ FileCache* initFileCache(unsigned int maxFiles, unsigned long maxSize){
 	out->current.fileNumber = 0;
 	out->maxReached.size = 0;
 	out->maxReached.fileNumber = 0;
+	out->filesEvicted = 0;
 	out->files = NULL;
 	return out;
 }
@@ -177,6 +183,7 @@ char* readCachedFile(CachedFile* file, char** buffer, size_t* size){
 }
 
 void removeFileFromCache(FileCache* fileCache, const char* filename){
+    fileCache->current.fileNumber--;
 	removeFileFromList(fileCache, &(fileCache->files), filename);
 }
 
