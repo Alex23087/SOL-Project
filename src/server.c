@@ -711,18 +711,31 @@ int main(int argc, char** argv){
 		char* storageString = getStringValue(configArgs, "storageSize");
 		do{
 			if(storageString == NULL){
+			    fprintf(stderr, "No string passed as \"storageSize\"\n");
 				error = true;
 				break;
 			}
 			nWorkers = getLongValue(configArgs, "nWorkers");
+			if(nWorkers < 1){
+			    fprintf(stderr, "\"nWorkers\" can't be less than 1\n");
+			    error = true;
+			    break;
+			}
 			maxFiles = getLongValue(configArgs, "maxFiles");
+			if(maxFiles < 1){
+			    fprintf(stderr, "\"maxFiles\" can't be less than 1\n");
+			    error = true;
+			    break;
+			}
 			socketPath = getStringValue(configArgs, "socketPath");
 			if(socketPath == NULL){
+			    fprintf(stderr, "No string passed as \"socketPath\"\n");
 				error = true;
 				break;
 			}
 			logFilePath = getStringValue(configArgs, "logFile");
 			if(logFilePath == NULL){
+			    fprintf(stderr, "No string passed as \"logFile\"\n");
 				error = true;
 				free(socketPath);
 				break;
@@ -751,6 +764,12 @@ int main(int argc, char** argv){
 				default:{
 					break;
 				}
+			}
+
+			if(storageSize < 1){
+			    fprintf(stderr, "\"storageSize\" can't be less than 1\n");
+			    error = true;
+			    break;
 			}
 		}while(false);
 		free(storageString);

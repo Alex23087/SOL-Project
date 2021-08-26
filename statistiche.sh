@@ -21,10 +21,10 @@ else
 		for line in ${READS//\\n/$cr}
 		do
 			CURRENTREAD="$(echo "$line" | grep -Eo "[0-9]* bytes" | grep -Eo "[0-9]*")"
-			READAVG=$(( "$READAVG" + "$CURRENTREAD"))
+			READAVG=$((READAVG + CURRENTREAD))
 		done
 
-		READAVG=$(( "$READAVG" / "$READCOUNT" ))
+		READAVG=$((READAVG / READCOUNT))
 	fi
 
 	WRITES="$(echo "$TEXT" | grep "Received file from client")"
@@ -37,10 +37,10 @@ else
 		for line in ${WRITES//\\n/$cr}
 		do
 			CURRENTWRITE="$(echo "$line" | grep -Eo "[0-9]* bytes" | grep -Eo "[0-9]*")"
-			WRITEAVG=$(( "$WRITEAVG" + "$CURRENTWRITE"))
+			WRITEAVG=$((WRITEAVG + CURRENTWRITE))
 		done
 
-		WRITEAVG=$(( "$WRITEAVG" / "$WRITECOUNT" ))
+		WRITEAVG=$((WRITEAVG / WRITECOUNT))
 	fi
 
 	echo "Number of reads: $READCOUNT, average size: $READAVG bytes"

@@ -1,5 +1,5 @@
 CC = gcc
-override CFLAGS += -Wall -pedantic
+override CFLAGS += -Wall -pedantic --std=gnu99
 .PHONY: all clean cleanall killserver hupserver test1 test2 test3 cleantest1 cleantest2 cleantest3
 
 
@@ -73,8 +73,8 @@ hupserver:
 
 
 
-test1: cleantest1 all
-	(mkdir -p ./tests/test1/tmp && sleep 2 && ./tests/test1/startClients.sh) &
+test1: cleantest1
+	(mkdir -p ./tests/test1/tmp && sleep 2 && chmod +x ./tests/test1/startClients.sh && ./tests/test1/startClients.sh) &
 	valgrind --leak-check=full --show-leak-kinds=all --track-origins=yes ./server -c tests/test1/config.txt
 
 cleantest1:
