@@ -34,6 +34,7 @@ static pthread_mutex_t incomingConnectionsLock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t incomingConnectionsCond = PTHREAD_COND_INITIALIZER;
 static char* logFilePath = NULL;
 static short logMode = O_APPEND;
+CompressionAlgorithm compressionAlgorithm = Miniz;
 static bool workersShouldTerminate = false;
 
 
@@ -532,22 +533,21 @@ static void* workerThread(void* arg){
                             //Everything is ok, file can be written
                             if(append){
                                 char* fileBuffer;
-                                size_t fileSize;
-                                readCachedFile(file, &fileBuffer, &fileSize);
+                                readCachedFile(file, &fileBuffer, (size_t *) &fileSize);
                                 free(file->contents);
                                 fileBuffer = realloc(fileBuffer, fileSize + bytesRead);
                                 memcpy(fileBuffer + fileSize, buffer, bytesRead);
-                                storeFile(fileCache, file, fileBuffer, fileSize + bytesRead);
+                                storedSize = storeFile(fileCache, file, fileBuffer, fileSize + bytesRead);
                             }else{
                                 free(file->contents);
                                 storedSize = storeFile(fileCache, file, buffer, fileSize);
                             }
                         }
                         pthread_mutex_unlock_error(file->lock, "Error while unlocking file");
-                        if(storedSize == fileSize){
+                        if(storedSize == (append ? fileSize + bytesRead : fileSize)){
 	                        serverLog("[Worker #%d]: File not compressed\n", workerID);
                         }else{
-                        	serverLog("[Worker #%d]: File has been compressed, old size: %lu bytes, new size: %lu bytes\n", workerID, fileSize, storedSize);
+                        	serverLog("[Worker #%d]: File has been compressed, old size: %lu bytes, new size: %lu bytes\n", workerID, (append ? fileSize + bytesRead : fileSize), storedSize);
                         }
                     }else{
                         //File does not exist
@@ -771,7 +771,15 @@ int main(int argc, char** argv){
                 }
                 free(logModeParameter);
 			}
-		
+			
+			char* fileCompressionParameter = getStringValue(configArgs, "compression");
+			if(fileCompressionParameter != NULL){
+				if(strcmp(fileCompressionParameter, "none") == 0){
+					compressionAlgorithm = None;
+				}
+				free(fileCompressionParameter);
+			}
+			
 			char* endptr = NULL;
 			storageSize = strtoul(storageString, &endptr, 10);
 			switch(*endptr){
@@ -812,7 +820,7 @@ int main(int argc, char** argv){
 	}
 	
 	
-	fileCache = initFileCache(maxFiles, storageSize, Miniz);
+	fileCache = initFileCache(maxFiles, storageSize, compressionAlgorithm);
 	
 	//Creating server listen socket
 	int serverSocketDescriptor = -1;
