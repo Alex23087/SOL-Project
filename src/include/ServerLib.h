@@ -51,6 +51,8 @@ void pthread_rwlock_wrlock_error(pthread_rwlock_t* lock, const char* msg);
 
 void removeFromFdSetUpdatingMax(int fd, fd_set* fdSet, int* maxFd);
 
+int serverEvictFile(const char* fileToExclude, const char* operation, int fdToServe, int workerID);
+
 void serverLog(const char* format, ...);
 
 void serverRemoveFile(const char* filename, int workerID);

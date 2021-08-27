@@ -358,6 +358,10 @@ int openConnection(const char* sockname, int msec, const struct timespec abstime
 }
 
 int openFile(const char* pathname, int flags){
+	return openFile2(pathname, NULL, flags);
+}
+
+int openFile2(const char* pathname, const char* dirname, int flags){
 	if(activeConnectionFD == -1){
 		//Function called without an active connection
 		errno = ENOTCONN;
@@ -378,33 +382,47 @@ int openFile(const char* pathname, int flags){
 		fcpSend(FCP_OPEN, flags, (char*)absolutePathname, activeConnectionFD);
 		printf("Open request sent\n");
 
+		bool receivingCacheMissFiles = false;
 		char fcpBuffer[FCP_MESSAGE_LENGTH];
-		ssize_t bytesRead = readn(activeConnectionFD, fcpBuffer, FCP_MESSAGE_LENGTH);
-		FCPMessage* message = fcpMessageFromBuffer(fcpBuffer);
+		ssize_t bytesRead = 0;
+		FCPMessage* message = NULL;
 
-		if(bytesRead != FCP_MESSAGE_LENGTH){
-			errno = EPROTO;
-			success = false;
-		}else{
-			switch(message->op){
-				case FCP_ACK:{
-					printf("File opened correctly\n");
-					break;
-				}
-				case FCP_ERROR:{
-					errno =	message->control;
-					success = false;
-					break;
-				}
-				default:{
-					errno = EPROTO;
-					success = false;
-					break;
+		do{
+			bytesRead = readn(activeConnectionFD, fcpBuffer, FCP_MESSAGE_LENGTH);
+			message = fcpMessageFromBuffer(fcpBuffer);
+			if(bytesRead != FCP_MESSAGE_LENGTH){
+				errno = EPROTO;
+				success = false;
+			}else{
+				switch(message->op){
+					case FCP_ACK:{
+						receivingCacheMissFiles = false;
+						printf("File opened correctly\n");
+						break;
+					}
+					case FCP_ERROR:{
+						errno =	message->control;
+						success = false;
+						break;
+					}
+					case FCP_WRITE:{
+						receivingCacheMissFiles = true;
+						//Server will send a file
+						if(receiveAndSaveFileFromServer(message->control, message->filename, dirname)){
+							success = false;
+						}
+						break;
+					}
+					default:{
+						errno = EPROTO;
+						success = false;
+						break;
+					}
 				}
 			}
-		}
+			free(message);
+		}while(receivingCacheMissFiles && success);
 
-		free(message);
 		free(absolutePathname);
 	}
 	return success ? 0 : -1;

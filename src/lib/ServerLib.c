@@ -172,6 +172,28 @@ void removeFromFdSetUpdatingMax(int fd, fd_set* fdSet, int* maxFd){
     }
 }
 
+int serverEvictFile(const char* fileToExclude, const char* operation, int fdToServe, int workerID){
+	const char* evictedFileName = getFileToEvict(fileCache, fileToExclude);
+	if(evictedFileName == NULL){
+		serverLog("[Worker #%d]: %s request can't be fulfilled because of a capacity fault, no file can be evicted to fulfill it\n", workerID, operation);
+		return -1;
+	}else{
+		serverLog("[Worker #%d]: %s request can't be fulfilled because of a capacity fault, evicting file \"%s\"\n", workerID, operation, evictedFileName);
+		CachedFile* evictedFile = getFile(fileCache, evictedFileName);
+		pthread_mutex_lock_error(evictedFile->lock, "Error while locking on file");
+		char* evictedFileBuffer = NULL;
+		size_t evictedFileSize = 0;
+		readCachedFile(evictedFile, &evictedFileBuffer, &evictedFileSize);
+		fcpSend(FCP_WRITE, (int32_t)evictedFileSize, (char*)evictedFileName, fdToServe);
+		ssize_t bytesSent = writen(fdToServe, evictedFileBuffer, evictedFileSize);
+		free(evictedFileBuffer);
+		serverLog("[Worker #%d]: Sent file to client %d, %ld bytes transferred\n", workerID, fdToServe, bytesSent);
+		pthread_mutex_unlock_error(evictedFile->lock, "Error while unlocking file");
+		serverRemoveFile(evictedFileName, workerID);
+		return 0;
+	}
+}
+
 void serverLog(const char* format, ...){
     va_list args;
     va_start(args, format);

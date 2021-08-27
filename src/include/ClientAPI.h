@@ -21,6 +21,8 @@ int openConnection(const char* sockname, int msec, const struct timespec abstime
 
 int openFile(const char* pathname, int flags);
 
+int openFile2(const char* pathname, const char* dirname, int flags);
+
 int readFile(const char* pathname, void** buf, size_t* size);
 
 int readNFiles(int N, const char* dirname);

@@ -55,6 +55,8 @@ typedef struct FileCache{
 
 bool canFitNewData(FileCache* fileCache, const char* filename, size_t dataSize, bool append);
 
+bool canFitNewFile(FileCache* fileCache);
+
 CachedFile* createFile(FileCache* fileCache, const char* filename);
 
 bool fileExists(FileCache* fileCache, const char* filename);
