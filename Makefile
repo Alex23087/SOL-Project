@@ -1,6 +1,6 @@
 CC = gcc
 override CFLAGS += -Wall -pedantic --std=gnu99
-.PHONY: all clean cleanall killserver hupserver testlock test1 test2 test3 cleantestlock cleantest1 cleantest2 cleantest3
+.PHONY: all clean cleanall killserver hupserver testlock testhangup test1 test2 test3 cleantestlock cleantesthangup cleantest1 cleantest2 cleantest3
 
 
 
@@ -69,7 +69,7 @@ clean:
 
 
 killserver:
-	ps -ao pid,command | grep -E "(valgrind)?server" | head -n1 | grep -Eo "[0-9]{3,6}" | xargs -n1 kill -SIGTERM
+	ps -ao pid,command | grep -E "(valgrind)?server" | head -n1 | grep -Eo "[0-9]{3,6}" | xargs -n1 kill -SIGKILL
 
 hupserver:
 	ps -ao pid,command | grep -E "(valgrind)?server" | head -n1 | grep -Eo "[0-9]{3,6}" | xargs -n1 kill -SIGHUP
@@ -81,6 +81,12 @@ testlock: cleantest1 all
 	valgrind --leak-check=full --show-leak-kinds=all --track-origins=yes ./server -c tests/test1/config.txt
 
 cleantestlock: cleantest1
+
+testhangup: cleantest1 all
+	(sleep 2 && chmod +x ./tests/hangup/startClients.sh && ./tests/hangup/startClients.sh) &
+	valgrind --leak-check=full --show-leak-kinds=all --track-origins=yes ./server -c tests/test1/config.txt
+
+cleantesthangup: cleantest1
 
 test1: cleantest1 all
 	(mkdir -p ./tests/test1/tmp && sleep 2 && chmod +x ./tests/test1/startClients.sh && ./tests/test1/startClients.sh) &

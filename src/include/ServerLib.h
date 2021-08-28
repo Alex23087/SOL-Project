@@ -15,13 +15,19 @@
 
 extern ClientList* clientList;
 extern pthread_rwlock_t clientListLock;
+extern unsigned int clientsConnected;
 extern FileCache* fileCache;
 extern pthread_rwlock_t fileCacheLock;
+extern pthread_mutex_t incomingConnectionsLock;
+extern pthread_cond_t incomingConnectionsCond;
 extern int logPipeDescriptors[2];
+extern bool workersShouldTerminate;
 
 
 
 void addToFdSetUpdatingMax(int fd, fd_set* fdSet, int* maxFd);
+
+void closeAllClientDescriptors();
 
 bool fileExistsL(const char* filename);
 
@@ -51,6 +57,8 @@ void pthread_rwlock_wrlock_error(pthread_rwlock_t* lock, const char* msg);
 
 void removeFromFdSetUpdatingMax(int fd, fd_set* fdSet, int* maxFd);
 
+void serverDisconnectClientL(int clientFd, bool lockClientList);
+
 int serverEvictFile(const char* fileToExclude, const char* operation, int fdToServe, int workerID);
 
 void serverLog(const char* format, ...);
@@ -60,6 +68,8 @@ void serverRemoveFile(const char* filename, int workerID);
 void serverRemoveFileL(const char* filename, int workerID);
 
 void serverSignalFileUnlockL(CachedFile* file, int workerID, int desc);
+
+void terminateServer(short *running);
 
 void unlockAllFilesLockedByClient(FileCache* fileCache, int clientFd);
 

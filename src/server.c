@@ -26,22 +26,18 @@
 	free(logFilePath);
 
 
-static unsigned int clientsConnected = 0;
 static unsigned int clientsConnectedMax = 0;
 static unsigned int* requestsServed;
 static Queue* incomingConnectionsQueue = NULL;
-static pthread_mutex_t incomingConnectionsLock = PTHREAD_MUTEX_INITIALIZER;
-static pthread_cond_t incomingConnectionsCond = PTHREAD_COND_INITIALIZER;
 static char* logFilePath = NULL;
 static short logMode = O_APPEND;
 CompressionAlgorithm compressionAlgorithm = Miniz;
-static bool workersShouldTerminate = false;
 
 
 
 static int workerDisconnectClient(int workerN, int fdToServe);
 static int onNewConnectionReceived(int serverSocketDescriptor, fd_set* selectFdSet, int* maxFd);
-static int onW2MMessageReceived(int serverSocketDescriptor, fd_set* selectFdSet, int* maxFd, bool* running);
+static int onW2MMessageReceived(int serverSocketDescriptor, fd_set* selectFdSet, int* maxFd, bool* running, bool* hangup);
 static int onConnectedClientMessage(int currentFd, fd_set* selectFdSet, int* maxFd);
 
 
@@ -71,7 +67,7 @@ static void* signalHandlerThread(void* arg){
 		}
 		case SIGHUP:{
 			serverLog("[Signal]: Received signal SIGHUP\n");
-			w2mSend(W2M_SIGNAL_TERM, 0);
+			w2mSend(W2M_SIGNAL_HANG, 0);
 			break;
 		}
 	}
@@ -554,7 +550,6 @@ static void* workerThread(void* arg){
                         error = ENOENT;
                     }
 
-
                     //Update client status
                     updateClientStatusL(Connected, 0, NULL, fdToServe);
 
@@ -911,6 +906,7 @@ int main(int argc, char** argv){
 	tv.tv_usec = 0;
 	
 	bool running = true;
+	bool hangup = false;
 	while(running){
 		tempFdSet = selectFdSet;
 		if(select(maxFd + 1, &tempFdSet, NULL, NULL, &tv) != -1){
@@ -924,7 +920,7 @@ int main(int argc, char** argv){
 						}
 					}else if(currentFd == w2mPipeDescriptors[0]){
 						//Message received from worker or signal thread
-						if(onW2MMessageReceived(serverSocketDescriptor, &selectFdSet, &maxFd, &running)){
+						if(onW2MMessageReceived(serverSocketDescriptor, &selectFdSet, &maxFd, &running, &hangup)){
 							return -1;
 						}
 					}else{
@@ -1020,7 +1016,7 @@ static int onNewConnectionReceived(int serverSocketDescriptor, fd_set* selectFdS
 	return 0;
 }
 
-static int onW2MMessageReceived(int serverSocketDescriptor, fd_set* selectFdSet, int* maxFd, bool* running){
+static int onW2MMessageReceived(int serverSocketDescriptor, fd_set* selectFdSet, int* maxFd, bool* running, bool* hangup){
 	char buffer[W2M_MESSAGE_LENGTH];
 	ssize_t bytesRead = readn(w2mPipeDescriptors[0], buffer, W2M_MESSAGE_LENGTH);
 	if(bytesRead < W2M_MESSAGE_LENGTH){
@@ -1041,43 +1037,26 @@ static int onW2MMessageReceived(int serverSocketDescriptor, fd_set* selectFdSet,
 		case W2M_SIGNAL_TERM:{
 			//Stop listening to incoming connections, close all connections, terminate
 			FD_ZERO(selectFdSet);
-#ifdef DEBUG
-			serverLog("[Master]: Received termination signal\n");
-#endif
-			*running = false;
-			workersShouldTerminate = true;
-
-			pthread_mutex_lock_error(&incomingConnectionsLock, "Error while locking incoming connections");
-			pthread_cond_broadcast_error(&incomingConnectionsCond, "Error while broadcasting stop message");
-			pthread_mutex_unlock_error(&incomingConnectionsLock, "Error while unlocking incoming connections");
-
+			terminateServer(running);
+			
 			break;
 		}
 		case W2M_SIGNAL_HANG:{
 			//Stop listening to incoming connections, serve all requests, terminate
 			removeFromFdSetUpdatingMax(serverSocketDescriptor, selectFdSet, maxFd);
-#ifdef DEBUG
-			serverLog("[Master]: Received hangup signal\n");
-#endif
-			*running = false;
+			*hangup = true;
+			if(clientsConnected == 0){
+				terminateServer(running);
+			}
 			break;
 		}
 		case W2M_CLIENT_DISCONNECTED:{
-		    clientsConnected--;
-			int clientFd = getIntFromW2MMessage(buffer);
-
-			pthread_rwlock_wrlock_error(&clientListLock, "Error while locking client list");
-			clientListRemove(&clientList, clientFd);
-			pthread_rwlock_unlock_error(&clientListLock, "Error while unlocking client list");
-			serverLog("[Master]: Client %d disconnected\n",clientFd);
-
-			//Unlock files locked by the client
-			pthread_rwlock_wrlock_error(&fileCacheLock, "Error while locking file cache");
-			unlockAllFilesLockedByClient(fileCache, clientFd);
-			pthread_rwlock_unlock_error(&fileCacheLock, "Error while unlocking file cache");
+			serverDisconnectClientL(getIntFromW2MMessage(buffer), true);
+			if(*hangup && clientsConnected == 0){
+				terminateServer(running);
+			}
 			break;
 		}
-		//TODO: Handle other cases
 	}
 	return 0;
 }

@@ -318,7 +318,6 @@ int openConnection(const char* sockname, int msec, const struct timespec abstime
 	do{
 		connectionSucceeded = !connect(clientSocketDescriptor, (struct sockaddr*)&serverAddress, sizeof(serverAddress));
 		if(!connectionSucceeded){
-			perror("Error while connecting to socket");
 			if(compareTimes(deadlineTime, endTime) >= 0){
 				usleep(msec * 1e3L);
 			}else{

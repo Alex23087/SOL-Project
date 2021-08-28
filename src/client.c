@@ -254,11 +254,14 @@ int main(int argc, char** argv){
 	ts.tv_sec = 2;
 	ts.tv_nsec = 0;
 	
-	openConnection(socketPath, 400, ts);
+	finished = false;
 	
+	if(openConnection(socketPath, 400, ts)){
+		perror("Error while connecting to server");
+		finished = true;
+	}
 	
 	//Process command queue
-	finished = false;
 	while(!finished && !queueIsEmpty(commandQueue)){
 		ClientCommand* currentCommand = (ClientCommand*)queuePop(&commandQueue);
 		switch(currentCommand->op) {

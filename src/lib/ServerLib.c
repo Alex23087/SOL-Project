@@ -24,9 +24,13 @@
 
 ClientList* clientList = NULL;
 pthread_rwlock_t clientListLock = PTHREAD_RWLOCK_INITIALIZER;
+unsigned int clientsConnected = 0;
 FileCache* fileCache = NULL;
 pthread_rwlock_t fileCacheLock = PTHREAD_RWLOCK_INITIALIZER; //Needed to add and remove files
+pthread_mutex_t incomingConnectionsLock = PTHREAD_MUTEX_INITIALIZER;
+pthread_cond_t incomingConnectionsCond = PTHREAD_COND_INITIALIZER;
 int logPipeDescriptors[2];
+bool workersShouldTerminate = false;
 
 
 
@@ -60,6 +64,14 @@ void addToFdSetUpdatingMax(int fd, fd_set* fdSet, int* maxFd){
     if(fd > *maxFd){
         *maxFd = fd;
     }
+}
+
+void closeAllClientDescriptors(){
+	pthread_rwlock_wrlock_error(&clientListLock, "Error while locking client list");
+	while(clientList != NULL){
+		serverDisconnectClientL(clientList->descriptor, false);
+	}
+	pthread_rwlock_unlock_error(&clientListLock, "Error while unlocking client list");
 }
 
 bool fileExistsL(const char* filename){
@@ -172,6 +184,24 @@ void removeFromFdSetUpdatingMax(int fd, fd_set* fdSet, int* maxFd){
     }
 }
 
+void serverDisconnectClientL(int clientFd, bool lockClientList){
+	clientsConnected--;
+	
+	if(lockClientList){
+		pthread_rwlock_wrlock_error(&clientListLock, "Error while locking client list");
+	}
+	clientListRemove(&clientList, clientFd);
+	if(lockClientList){
+		pthread_rwlock_unlock_error(&clientListLock, "Error while unlocking client list");
+	}
+	serverLog("[Master]: Client %d disconnected\n",clientFd);
+	
+	//Unlock files locked by the client
+	pthread_rwlock_wrlock_error(&fileCacheLock, "Error while locking file cache");
+	unlockAllFilesLockedByClient(fileCache, clientFd);
+	pthread_rwlock_unlock_error(&fileCacheLock, "Error while unlocking file cache");
+}
+
 int serverEvictFile(const char* fileToExclude, const char* operation, int fdToServe, int workerID){
 	const char* evictedFileName = getFileToEvict(fileCache, fileToExclude);
 	if(evictedFileName == NULL){
@@ -236,6 +266,17 @@ void serverSignalFileUnlockL(CachedFile* file, int workerID, int desc){
 	fcpSend(FCP_ACK, 0, NULL, desc);
 	serverLog("[Worker #%d]: Client %d successfully locked the file\n", workerID, desc);
 	w2mSend(W2M_CLIENT_SERVED, desc);
+}
+
+void terminateServer(short *running){
+	*running = false;
+	workersShouldTerminate = true;
+	
+	closeAllClientDescriptors();
+	
+	pthread_mutex_lock_error(&incomingConnectionsLock, "Error while locking incoming connections");
+	pthread_cond_broadcast_error(&incomingConnectionsCond, "Error while broadcasting stop message");
+	pthread_mutex_unlock_error(&incomingConnectionsLock, "Error while unlocking incoming connections");
 }
 
 void unlockAllFilesLockedByClient(FileCache* fileCache, int clientFd){
