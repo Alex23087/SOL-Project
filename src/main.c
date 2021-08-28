@@ -22,7 +22,7 @@ int main() {
     	char* argv[len];
     	argv[0] = "server";
     	argv[1] = "-c";
-    	argv[2] = "/mnt/e/Progetti/SOL-Project/tests/test1/config.txt";
+    	argv[2] = "/mnt/e/Progetti/SOL-Project/tests/test2/config.txt";
     	serverMain(len, (char **) argv);
     }else{
     	const int len = 5;

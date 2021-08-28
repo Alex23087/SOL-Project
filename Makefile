@@ -60,7 +60,7 @@ build/W2M.o: src/lib/W2M.c
 
 
 
-cleanall: clean cleantest1
+cleanall: clean cleantest1 cleantest2
 	rm -f server client
 
 clean:
@@ -94,4 +94,11 @@ test1: cleantest1 all
 
 cleantest1:
 	rm -rf ./tests/test1/tmp
+
+test2: cleantest2 all
+	(mkdir -p ./tests/test2/tmp && sleep 2 && chmod +x ./tests/test2/startClients.sh && ./tests/test2/startClients.sh) &
+	./server -c tests/test2/config.txt
+
+cleantest2:
+	rm -rf ./tests/test2/tmp
 

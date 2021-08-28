@@ -1,6 +1,6 @@
-nWorkers=1
-maxFiles=10000
-storageSize="128M"
+nWorkers=4
+maxFiles=10
+storageSize="1M"
 socketPath="/tmp/LSOfilestorage.sk"
 logFile="/tmp/LSOfilestorage.log"
 logMode="trunc"

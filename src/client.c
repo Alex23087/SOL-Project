@@ -269,7 +269,7 @@ int main(int argc, char** argv){
 				char* savePtr = NULL;
 				char* token = strtok_r(currentCommand->parameter.stringValue, ",", &savePtr);
 				while(token != NULL) {
-					if(openFile(token, O_CREATE | O_LOCK)){
+					if(openFile2(token, cacheMissFolderPath, O_CREATE | O_LOCK)){
 						perror("Error while opening file");
 						finished = true;
 					}else{

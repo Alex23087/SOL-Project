@@ -139,9 +139,9 @@ const char* getFileToEvict(FileCache* fileCache, const char* fileToExclude){
             return NULL;
         }
     }
-    fileCache->filesEvicted++;
     while(current->next != NULL){
-        if(strcmp(current->next->file->filename, fileToExclude) == 0){
+    	//Skip locked files and the file specified as parameter
+        if(current->next->file->lockedBy != -1 || strcmp(current->next->file->filename, fileToExclude) == 0){
             if(current->next->next == NULL){
                 break;
             }else{
@@ -151,7 +151,14 @@ const char* getFileToEvict(FileCache* fileCache, const char* fileToExclude){
             current = current->next;
         }
     }
-    return current->file->filename;
+    
+    //If all the files are locked, then current->file will point to a locked file. We don't want to remove it
+    if(current->file->lockedBy == -1){
+    	fileCache->filesEvicted++;
+    	return current->file->filename;
+    }else{
+    	return NULL;
+    }
 }
 
 FileCache* initFileCache(unsigned int maxFiles, unsigned long maxSize, CompressionAlgorithm compressionAlgorithm){
