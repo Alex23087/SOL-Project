@@ -7,9 +7,7 @@ then
 	echo "Please provide a log file to parse"
 else
 	echo "Parsing $LOGFILE"
-	TEXT="$(cat "$LOGFILE")"
-	TEXT="${TEXT##*Up and running}"
-
+	TEXT="$(tac "$LOGFILE" | sed '/Up and running/Q' | tac)"
 
 	READS="$(echo "$TEXT" | grep "Sent file to client")"
 	READCOUNT="$(echo "$READS" | grep -c .)"

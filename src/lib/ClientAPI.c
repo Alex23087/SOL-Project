@@ -9,7 +9,6 @@
 #include <unistd.h>
 
 #include "../include/ClientAPI.h"
-#include "../include/defines.h"
 #include "../include/FileCachingProtocol.h"
 #include "../include/ion.h"
 #include "../include/ParseUtils.h"
@@ -21,15 +20,15 @@
 //Open connections key value list, useful if the API is extended to handle more connections
 static ArgsList* openConnections = NULL;
 static int activeConnectionFD = -1;
-
+bool verbose = false;
 
 
 static int receiveAndSaveFileFromServer(size_t filesize, const char* filename, const char* dirname){
-    printf("Receiving file from server (filename: \"%s\", bytes: %zu)\n", filename, filesize);
+    printIfVerbose("Receiving file from server (filename: \"%s\", bytes: %zu)\n", filename, filesize);
     size_t size = filesize;
     char* fileBuffer = malloc(size);
     ssize_t fileSize = readn(activeConnectionFD, fileBuffer, size);
-    printf("Received file from server, (%ld bytes)\n", fileSize);
+    printIfVerbose("Received file from server, (%ld bytes)\n", fileSize);
 
     if(size != fileSize){
         errno = EPROTO;
@@ -38,7 +37,7 @@ static int receiveAndSaveFileFromServer(size_t filesize, const char* filename, c
 
     if(dirname != NULL){
         char* newFileName = replaceBasename(dirname, (char*)filename);
-        printf("Filename: %s\n", newFileName);
+        printIfVerbose("Filename: %s\n", newFileName);
         int fileDescriptor = open(newFileName, O_CREAT | O_WRONLY | O_TRUNC, 0644);
         if(fileDescriptor == -1){
             free(newFileName);
@@ -46,10 +45,10 @@ static int receiveAndSaveFileFromServer(size_t filesize, const char* filename, c
         }
         writen(fileDescriptor, fileBuffer, fileSize);
         close(fileDescriptor);
-        printf("File saved to: %s\n", newFileName);
+        printIfVerbose("File saved to: %s\n", newFileName);
         free(newFileName);
     }else{
-        printf("Save directory not specified, not saving file\n");
+        printIfVerbose("Save directory not specified, not saving file\n");
     }
     free(fileBuffer);
     return 0;
@@ -87,9 +86,9 @@ static int writeOrAppendFile(const char* pathname, void* buf, size_t size, const
             size = fileStat.st_size;
         }
 
-        printf("Sending %s request to server\n", append ? "append" : "write");
+        printIfVerbose("Sending %s request to server\n", append ? "append" : "write");
         fcpSend(append ? FCP_APPEND : FCP_WRITE, (int)size, (char*)absolutePathname, activeConnectionFD);
-        printf("%s request sent\n", append ? "Append" : "Write");
+        printIfVerbose("%s request sent\n", append ? "Append" : "Write");
 
         bool receivingCacheMissFiles = false;
         char fcpBuffer[FCP_MESSAGE_LENGTH];
@@ -100,7 +99,7 @@ static int writeOrAppendFile(const char* pathname, void* buf, size_t size, const
             switch(message->op){
                 case FCP_ACK:{
                     receivingCacheMissFiles = false;
-                    printf("Server has sent ack back, starting transfer\n");
+                    printIfVerbose("Server has sent ack back, starting transfer\n");
                     if(append){
                         writen(activeConnectionFD, buf, size);
                     }else{
@@ -109,25 +108,25 @@ static int writeOrAppendFile(const char* pathname, void* buf, size_t size, const
                         writen(activeConnectionFD, fileBuffer, size);
                         free(fileBuffer);
                     }
-                    printf("File transfer complete, waiting for ack\n");
+                    printIfVerbose("File transfer complete, waiting for ack\n");
                     if(readn(activeConnectionFD, fcpBuffer, FCP_MESSAGE_LENGTH) == FCP_MESSAGE_LENGTH){
                         free(message);
                         message = fcpMessageFromBuffer(fcpBuffer);
 
                         switch(message->op) {
                             case FCP_ACK:{
-                                printf("Received ack from server, operation completed successfully\n");
+                                printIfVerbose("Received ack from server, operation completed successfully\n");
                                 break;
                             }
                             default:{
-                                printf("Server sent an invalid reply, operation failed\n");
+                                //fprintf(stderr, "Server sent an invalid reply, operation failed\n");
                                 errno = EPROTO; //EBADMSG EPROTO EMSGSIZE EILSEQ
                                 success = false;
                                 break;
                             }
                         }
                     }else{
-                        printf("Server sent an invalid reply, operation failed\n");
+                        //fprintf(stderr, "Server sent an invalid reply, operation failed\n");
                         errno = EPROTO;
                         success = false;
                     }
@@ -208,9 +207,9 @@ int closeFile(const char* pathname){
             return -1;
         }
 
-        printf("Sending close request to server\n");
+        printIfVerbose("Sending close request to server\n");
         fcpSend(FCP_CLOSE, 0, (char*)absolutePathname, activeConnectionFD);
-        printf("Close request sent\n");
+        printIfVerbose("Close request sent\n");
 
         char fcpBuffer[FCP_MESSAGE_LENGTH];
         readn(activeConnectionFD, fcpBuffer, FCP_MESSAGE_LENGTH);
@@ -218,7 +217,7 @@ int closeFile(const char* pathname){
 
         switch(message->op){
             case FCP_ACK:{
-                printf("File closed correctly\n");
+                printIfVerbose("File closed correctly\n");
                 break;
             }
             case FCP_ERROR:{
@@ -254,9 +253,9 @@ int lockFile(const char* pathname){
             return -1;
         }
 
-        printf("Sending lock request to server\n");
+        printIfVerbose("Sending lock request to server\n");
         fcpSend(FCP_LOCK, 0, (char*)absolutePathname, activeConnectionFD);
-        printf("Lock request sent\n");
+        printIfVerbose("Lock request sent\n");
 
         char fcpBuffer[FCP_MESSAGE_LENGTH];
         ssize_t bytesRead = readn(activeConnectionFD, fcpBuffer, FCP_MESSAGE_LENGTH);
@@ -268,7 +267,7 @@ int lockFile(const char* pathname){
         }else{
             switch(message->op){
                 case FCP_ACK:{
-                    printf("File locked successfully\n");
+                    printIfVerbose("File locked successfully\n");
                     break;
                 }
                 case FCP_ERROR:{
@@ -331,10 +330,6 @@ int openConnection(const char* sockname, int msec, const struct timespec abstime
 	}while(compareTimes(deadlineTime, currentTime) > 0);
 
 	if(connectionSucceeded){
-#ifdef DEBUG
-		printf("Connected to server\n");
-#endif
-
 		//Adding the connection to the key value array of open connections
 		ArgsList* newConnection = initArgsListNode();
 		newConnection->type = Long;
@@ -348,9 +343,6 @@ int openConnection(const char* sockname, int msec, const struct timespec abstime
 		activeConnectionFD = clientSocketDescriptor;
 		return 0;
 	}else{
-#ifdef DEBUG
-		printf("Connection to server failed\n");
-#endif
 		errno = ENXIO; //ETIMEDOUT maybe?
 		return -1;
 	}
@@ -377,9 +369,9 @@ int openFile2(const char* pathname, const char* dirname, int flags){
 			return -1;
 		}
 
-		printf("Sending open request to server\n");
+		printIfVerbose("Sending open request to server\n");
 		fcpSend(FCP_OPEN, flags, (char*)absolutePathname, activeConnectionFD);
-		printf("Open request sent\n");
+		printIfVerbose("Open request sent\n");
 
 		bool receivingCacheMissFiles = false;
 		char fcpBuffer[FCP_MESSAGE_LENGTH];
@@ -396,7 +388,7 @@ int openFile2(const char* pathname, const char* dirname, int flags){
 				switch(message->op){
 					case FCP_ACK:{
 						receivingCacheMissFiles = false;
-						printf("File opened correctly\n");
+						printIfVerbose("File opened correctly\n");
 						break;
 					}
 					case FCP_ERROR:{
@@ -444,9 +436,9 @@ int readFile(const char* pathname, void** buf, size_t* size){
 			return -1;
 		}
 
-		printf("Sending read request to server\n");
+		printIfVerbose("Sending read request to server\n");
 		fcpSend(FCP_READ, 0, (char*)absolutePathname, activeConnectionFD);
-		printf("Read request sent\n");
+		printIfVerbose("Read request sent\n");
 
 		char fcpBuffer[FCP_MESSAGE_LENGTH];
 		ssize_t bytesRead = readn(activeConnectionFD, fcpBuffer, FCP_MESSAGE_LENGTH);
@@ -493,9 +485,9 @@ int readNFiles(int N, const char* dirname){
         return -1;
     }
 
-    printf("Sending readN request to server\n");
+    printIfVerbose("Sending readN request to server\n");
     fcpSend(FCP_READ_N, N, NULL, activeConnectionFD);
-    printf("ReadN request sent\n");
+    printIfVerbose("ReadN request sent\n");
 
     bool success = true;
     char fcpBuffer[FCP_MESSAGE_LENGTH];
@@ -514,7 +506,7 @@ int readNFiles(int N, const char* dirname){
             }
             case FCP_ACK:{
                 //All files sent
-                printf("ReadN operation finished\n");
+                printIfVerbose("ReadN operation finished\n");
                 finished = true;
                 break;
             }
@@ -560,9 +552,9 @@ int removeFile(const char* pathname){
             return -1;
         }
 
-        printf("Sending remove file request to server\n");
+        printIfVerbose("Sending remove file request to server\n");
         fcpSend(FCP_REMOVE, 0, (char*)absolutePathname, activeConnectionFD);
-        printf("Remove request sent\n");
+        printIfVerbose("Remove request sent\n");
 
         char fcpBuffer[FCP_MESSAGE_LENGTH];
         ssize_t bytesRead = readn(activeConnectionFD, fcpBuffer, FCP_MESSAGE_LENGTH);
@@ -574,7 +566,7 @@ int removeFile(const char* pathname){
         }else{
             switch(message->op){
                 case FCP_ACK:{
-                    printf("File removed correctly\n");
+                    printIfVerbose("File removed correctly\n");
                     break;
                 }
                 case FCP_ERROR:{
@@ -617,9 +609,9 @@ int unlockFile(const char* pathname){
 			return -1;
 		}
 
-		printf("Sending unlock request to server\n");
+		printIfVerbose("Sending unlock request to server\n");
 		fcpSend(FCP_UNLOCK, 0, (char*)absolutePathname, activeConnectionFD);
-		printf("Unlock request sent\n");
+		printIfVerbose("Unlock request sent\n");
 
 		char fcpBuffer[FCP_MESSAGE_LENGTH];
 		ssize_t bytesRead = readn(activeConnectionFD, fcpBuffer, FCP_MESSAGE_LENGTH);
@@ -631,7 +623,7 @@ int unlockFile(const char* pathname){
 		}else{
 			switch(message->op){
 				case FCP_ACK:{
-					printf("File unlocked successfully\n");
+					printIfVerbose("File unlocked successfully\n");
 					break;
 				}
 				case FCP_ERROR:{

@@ -1,6 +1,8 @@
 CC = gcc
 override CFLAGS += -Wall -pedantic --std=gnu99
-.PHONY: all clean cleanall killserver hupserver testlock testhangup test1 test2 test3 cleantestlock cleantesthangup cleantest1 cleantest2 cleantest3
+.PHONY: all clean cleanall killserver intserver hupserver testlock testhangup test1 test2 test3 cleantestlock cleantesthangup cleantest1 cleantest2 cleantest3
+SERVERDEPS = server FileCache FileCachingProtocol ion miniz ParseUtils Queue ServerLib W2M
+CLIENTDEPS = client ClientAPI FileCachingProtocol ion ParseUtils PathUtils Queue TimespecUtils
 
 
 
@@ -8,10 +10,10 @@ all: client server
 
 
 
-server: build build/server.o build/ParseUtils.o build/ion.o build/queue.o build/FileCachingProtocol.o build/FileCache.o build/ServerLib.o build/W2M.o build/miniz.o
+server: build $(addprefix build/,$(addsuffix .o, $(SERVERDEPS)))
 	$(CC) $(CFLAGS) -pthread $(filter-out $<,$^) -o $@
 
-client: build ./build/client.o build/ClientAPI.o build/timespecUtils.o build/ParseUtils.o build/ion.o build/FileCachingProtocol.o build/queue.o build/PathUtils.o
+client: build $(addprefix build/,$(addsuffix .o, $(CLIENTDEPS)))
 	$(CC) $(CFLAGS) $(filter-out $<,$^) -o $@
 
 
@@ -19,49 +21,16 @@ client: build ./build/client.o build/ClientAPI.o build/timespecUtils.o build/Par
 build:
 	mkdir -p build
 
-build/client.o: src/client.c
+build/%.o: src/%.c
 	$(CC) $(CFLAGS) $^ -c -o $@
 
-build/ClientAPI.o: src/lib/ClientAPI.c
-	$(CC) $(CFLAGS) $^ -c -o $@
-
-build/FileCache.o: src/lib/FileCache.c
-	$(CC) $(CFLAGS) $^ -c -o $@
-
-build/FileCachingProtocol.o: src/lib/FileCachingProtocol.c
-	$(CC) $(CFLAGS) $^ -c -o $@
-
-build/ion.o: src/lib/ion.c
-	$(CC) $(CFLAGS) $^ -c -o $@
-
-build/miniz.o: src/lib/miniz.c
-	$(CC) $(CFLAGS) $^ -c -o $@
-
-build/ParseUtils.o: src/lib/ParseUtils.c
-	$(CC) $(CFLAGS) $^ -c -o $@
-
-build/PathUtils.o: src/lib/PathUtils.c
-	$(CC) $(CFLAGS) $^ -c -o $@
-
-build/queue.o: src/lib/Queue.c
-	$(CC) $(CFLAGS) $^ -c -o $@
-
-build/server.o: src/server.c
-	$(CC) $(CFLAGS) $^ -c -o $@
-
-build/ServerLib.o: src/lib/ServerLib.c
-	$(CC) $(CFLAGS) $^ -c -o $@
-
-build/timespecUtils.o: src/lib/TimespecUtils.c
-	$(CC) $(CFLAGS) $^ -c -o $@
-
-build/W2M.o: src/lib/W2M.c
+build/%.o: src/lib/%.c
 	$(CC) $(CFLAGS) $^ -c -o $@
 
 
 
-cleanall: clean cleantest1 cleantest2
-	rm -f server client
+cleanall: clean cleantest1 cleantest2 cleantest3
+	rm -f server client /tmp/LSOfilestorage.sk /tmp/LSOfilestorage.log
 
 clean:
 	rm -rf build
@@ -71,34 +40,44 @@ clean:
 killserver:
 	ps -ao pid,command | grep -E "(valgrind)?server" | head -n1 | grep -Eo "[0-9]{3,6}" | xargs -n1 kill -SIGKILL
 
+intserver:
+	ps -ao pid,command | grep -E "(valgrind)?server" | head -n1 | grep -Eo "[0-9]{3,6}" | xargs -n1 kill -SIGINT
+
 hupserver:
 	ps -ao pid,command | grep -E "(valgrind)?server" | head -n1 | grep -Eo "[0-9]{3,6}" | xargs -n1 kill -SIGHUP
 
 
 
 testlock: cleantest1 all
-	(sleep 2 && chmod +x ./tests/lock/startClients.sh && ./tests/lock/startClients.sh) &
+	(sleep 1 && chmod +x ./tests/lock/startClients.sh && ./tests/lock/startClients.sh) &
 	valgrind --leak-check=full --show-leak-kinds=all --track-origins=yes ./server -c tests/test1/config.txt
 
 cleantestlock: cleantest1
 
 testhangup: cleantest1 all
-	(sleep 2 && chmod +x ./tests/hangup/startClients.sh && ./tests/hangup/startClients.sh) &
+	(sleep 1 && chmod +x ./tests/hangup/startClients.sh && ./tests/hangup/startClients.sh) &
 	valgrind --leak-check=full --show-leak-kinds=all --track-origins=yes ./server -c tests/test1/config.txt
 
 cleantesthangup: cleantest1
 
 test1: cleantest1 all
-	(mkdir -p ./tests/test1/tmp && sleep 2 && chmod +x ./tests/test1/startClients.sh && ./tests/test1/startClients.sh) &
+	(mkdir -p ./tests/test1/tmp && sleep 1 && chmod +x ./tests/test1/startClients.sh && ./tests/test1/startClients.sh) &
 	valgrind --leak-check=full --show-leak-kinds=all --track-origins=yes ./server -c tests/test1/config.txt
 
 cleantest1:
 	rm -rf ./tests/test1/tmp
 
 test2: cleantest2 all
-	(mkdir -p ./tests/test2/tmp && sleep 2 && chmod +x ./tests/test2/startClients.sh && ./tests/test2/startClients.sh) &
+	(mkdir -p ./tests/test2/tmp && sleep 1 && chmod +x ./tests/test2/startClients.sh && ./tests/test2/startClients.sh) &
 	./server -c tests/test2/config.txt
 
 cleantest2:
 	rm -rf ./tests/test2/tmp
+
+test3: cleantest2 all
+	(mkdir -p ./tests/test3/tmp && sleep 1 && chmod +x ./tests/test3/startClients.sh && ./tests/test3/startClients.sh) &
+	./server -c tests/test3/config.txt
+
+cleantest3:
+	rm -rf ./tests/test3/tmp
 

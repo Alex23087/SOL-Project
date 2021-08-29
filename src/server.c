@@ -695,13 +695,10 @@ int main(int argc, char** argv){
 		opt = getopt(argc, argv, "hf:c:");
 		switch(opt){
 			case 'h':{
-				//TODO: Write server help
-				printf("%s\n", argv[0]);
-				break;
-			}
-			case 'f':{
-				socketPath = optarg;
-				break;
+				printf("Usage: %s [OPTIONS...]\n\n"
+						"  -h\t\t\tPrints this help message.\n\n"
+						"  -c filename\t\tSpecifies the config file path.\n", argv[0]);
+				return 0;
 			}
 			case 'c':{
 				configFilePath = optarg;

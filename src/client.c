@@ -10,7 +10,6 @@
 #include <unistd.h>
 
 #include "include/ClientAPI.h"
-#include "include/defines.h"
 #include "include/ion.h"
 #include "include/PathUtils.h"
 #include "include/Queue.h"
@@ -91,7 +90,7 @@ int main(int argc, char** argv){
 						"\t\t\tfrom the server.\n\n"
 						"  -R [n=0]\t\tReads any n files from the server. If n is not\n"
 						"\t\t\tspecified, or n=0, all the files currently in\n"
-						"\t\t\tthe server are read\n\n"
+						"\t\t\tthe server are read.\n\n"
 						"  -d dirname\t\tSpecifies the folder where to save files that are\n"
 						"\t\t\tread from the server with the options -r and -R.\n"
 						"\t\t\tIf this option is not specified, such files will be\n"
@@ -104,7 +103,10 @@ int main(int argc, char** argv){
 						"\t\t\t(separated by a ',').\n\n"
 						"  -u file1[,file2...]\tReleases the lock on the files specified\n"
 						"\t\t\t(separated by a ',').\n\n"
-						"  -p, -v\t\tPrints info about each operation.\n\n", basename(argv[0]));
+						"  -p, -v\t\tPrints info about each operation.\n\n"
+						"  -c file1[,file2...]\tDeletes the files specified (separated by a ',')\n"
+						"\t\t\tfrom the server.\n\n"
+						"  -a file1,file2\tAppends the contents of file2 to file1.\n", basename(argv[0]));
 				finished = true;
 				queueFree(commandQueue);
 				return 0;
@@ -210,7 +212,7 @@ int main(int argc, char** argv){
 			}
 			case 'v':
 			case 'p':{
-				//TODO: Implement this
+				verbose = true;
 				break;
 			}
 			case 'a':{
@@ -314,7 +316,7 @@ int main(int argc, char** argv){
 							//Operation successful, save file
 							if(readOperationFolderPath != NULL){
 								char* newFileName = replaceBasename(readOperationFolderPath, token);
-								printf("Saving file to: %s\n", newFileName);
+								printIfVerbose("Saving file to: %s\n", newFileName);
 								int fileDescriptor = open(newFileName, O_CREAT | O_WRONLY | O_TRUNC, 0644);
 								if(fileDescriptor == -1){
 									perror("Error while saving file");
@@ -322,11 +324,11 @@ int main(int argc, char** argv){
 								}else{
 									writen(fileDescriptor, fileBuffer, fileSize);
 									close(fileDescriptor);
-									printf("File saved to: %s\n", newFileName);
+									printIfVerbose("File saved to: %s\n", newFileName);
 								}
 								free(newFileName);
 							}else{
-								printf("No output directory specified, not saving file\n");
+								printIfVerbose("No output directory specified, not saving file\n");
 							}
 						}
 						free(fileBuffer);

@@ -4,8 +4,14 @@
 #include <stddef.h>
 #include <time.h>
 
+#include "defines.h"
+
 #define O_CREATE 1
 #define O_LOCK 2
+
+
+
+extern bool verbose;
 
 
 
