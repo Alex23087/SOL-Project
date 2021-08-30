@@ -27,9 +27,9 @@ static ArgsList* argsListNodeFromString(const char* input){
         i++;
     }
     if(input[i] != '='){
-        //TODO: Handle error
         fprintf(stderr, "Invalid format in config file: \"%s\"", input);
-        exit(1);
+	    freeArgsListNode(out);
+        return NULL;
     }
     i++;
     while(isspace(input[i])){
@@ -49,9 +49,9 @@ static ArgsList* argsListNodeFromString(const char* input){
         case String:
             while(input[i] != '\"'){
                 if(input[i] == '\n' || input[i] == EOF){
-                    //TODO: Handle error
                     fprintf(stderr, "Invalid format in input: \"%s\"\n", input);
-                    exit(1);
+	                freeArgsListNode(out);
+	                return NULL;
                 }
                 i++;
             }
@@ -65,8 +65,9 @@ static ArgsList* argsListNodeFromString(const char* input){
             value = malloc(sizeof(long));
             *(long*)value = strtol(&input[i], NULL, 10);
             if(errno != 0){
-                //TODO: Handle error
                 perror("Invalid long format in input\n");
+                freeArgsListNode(out);
+                return NULL;
             }
             break;
     }
@@ -103,7 +104,6 @@ void freeArgsListNode(ArgsList* node){
 long getLongValue(ArgsList* list, const char* key){
     ArgsList* node = getNodeForKey(list, key);
     if(node == NULL || node->type != Long || node->data == NULL){
-        //TODO: Handle error
         fprintf(stderr, "Error while getting long value for key: %s\n", key);
         exit(1);
     }
@@ -121,8 +121,6 @@ ArgsList* getNodeForKey(ArgsList* list, const char* key){
 char* getStringValue(ArgsList* list, const char* key){
     ArgsList* node = getNodeForKey(list, key);
     if(node == NULL || node->type != String || node->data == NULL){
-        //TODO: Handle error
-        //fprintf(stderr, "Error while getting string value for key: %s\n", key);
         return NULL;
     }
 
@@ -154,7 +152,7 @@ ArgsList* readConfigFile(const char* filename){
                 	break;
                 }else{
                 	fprintf(stderr, "Error while reading from file \"%s\"\n", filename);
-                	//TODO: Handle error
+                	exit(-1);
                 }
             }else{
             	if(strIsWhitespace(buffer)){
@@ -171,8 +169,8 @@ ArgsList* readConfigFile(const char* filename){
         }
         fclose(file);
     }else{
-        //TODO: Handle error
 	    perror("File couldn't be read");
+	    exit(-1);
     }
 
     free(buffer);

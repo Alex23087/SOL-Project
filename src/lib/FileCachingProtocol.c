@@ -48,7 +48,6 @@ static bool isFileOpen(OpenFilesList* list, const char* filename){
 }
 
 static void removeOpenFile(OpenFilesList** list, const char* filename){
-    //TODO: Test
     OpenFilesList* current = *list;
     if(current == NULL){
         return;

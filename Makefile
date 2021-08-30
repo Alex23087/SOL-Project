@@ -76,7 +76,7 @@ cleantest2:
 
 test3: cleantest2 all
 	(mkdir -p ./tests/test3/tmp && sleep 1 && chmod +x ./tests/test3/startClients.sh && ./tests/test3/startClients.sh) &
-	./server -c tests/test3/config.txt
+	valgrind --leak-check=full --show-leak-kinds=all --track-origins=yes ./server -c tests/test3/config.txt
 
 cleantest3:
 	rm -rf ./tests/test3/tmp

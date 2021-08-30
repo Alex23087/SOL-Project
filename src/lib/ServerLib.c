@@ -113,21 +113,18 @@ bool isFileOpenedByClientL(const char* filename, int descriptor){
 void pthread_cond_broadcast_error(pthread_cond_t* cond, const char* msg){
     if(pthread_cond_broadcast(cond)){
         perror(msg);
-        //TODO: Handle error
     }
 }
 
 void pthread_cond_signal_error(pthread_cond_t* cond, const char* msg){
     if(pthread_cond_signal(cond)){
         perror(msg);
-        //TODO: Handle error, maybe send message to master
     }
 }
 
 void pthread_cond_wait_error(pthread_cond_t* cond, pthread_mutex_t* lock, const char* msg){
     if(pthread_cond_wait(cond, lock)){
         perror(msg);
-        //TODO: Handle error, maybe send message to master
     }
 }
 
@@ -140,35 +137,30 @@ void pthread_join_error(pthread_t thread, const char* msg){
 void pthread_mutex_lock_error(pthread_mutex_t* lock, const char* msg){
 	if(pthread_mutex_lock(lock)){
 		perror(msg);
-		//TODO: Handle error, maybe send message to master
 	}
 }
 
 void pthread_mutex_unlock_error(pthread_mutex_t* lock, const char* msg){
 	if(pthread_mutex_unlock(lock)){
 		perror(msg);
-		//TODO: Handle error, maybe send message to master
 	}
 }
 
 void pthread_rwlock_rdlock_error(pthread_rwlock_t* lock, const char* msg){
 	if(pthread_rwlock_rdlock(lock)){
 		perror(msg);
-		//TODO: Handle error, maybe send message to master
 	}
 }
 
 void pthread_rwlock_unlock_error(pthread_rwlock_t* lock, const char* msg){
     if(pthread_rwlock_unlock(lock)){
         perror(msg);
-        //TODO: Handle error, maybe send message to master
     }
 }
 
 void pthread_rwlock_wrlock_error(pthread_rwlock_t* lock, const char* msg){
 	if(pthread_rwlock_wrlock(lock)){
 		perror(msg);
-		//TODO: Handle error, maybe send message to master
 	}
 }
 
