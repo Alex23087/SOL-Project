@@ -25,12 +25,18 @@
 	free(socketPath);\
 	free(logFilePath);
 
+typedef enum{
+	NoTime,
+	Timestamp,
+	Formatted
+} LogTimeFormat;
 
 static unsigned int clientsConnectedMax = 0;
 static unsigned int* requestsServed;
 static Queue* incomingConnectionsQueue = NULL;
 static char* logFilePath = NULL;
 static short logMode = O_APPEND;
+static LogTimeFormat logTimeFormat = Timestamp;
 CompressionAlgorithm compressionAlgorithm = Miniz;
 
 
@@ -214,7 +220,8 @@ static void* workerThread(void* arg){
                                 if(capacityError){
                                 	fcpSend(FCP_ERROR, EMFILE, NULL, fdToServe);
                                 }else{
-                                	if(FCP_OPEN_FLAG_ISSET(fcpMessage->control, O_LOCK)){
+                                	bool lockIsSet = FCP_OPEN_FLAG_ISSET(fcpMessage->control, O_LOCK);
+                                	if(lockIsSet){
                                 		pthread_mutex_lock_error(file->lock, "Error while locking file");
                                 		file->lockedBy = fdToServe;
                                 		pthread_mutex_unlock_error(file->lock, "Error while unlocking file");
@@ -224,7 +231,7 @@ static void* workerThread(void* arg){
                                 	setFileOpened(clientList, fdToServe, fcpMessage->filename);
                                 	pthread_rwlock_unlock_error(&fileCacheLock, "Error while unlocking on file cache");
 
-                                	serverLog("[Worker #%d]: Client %d successfully opened the file\n", workerID, fdToServe);
+                                	serverLog("[Worker #%d]: Client %d successfully %s the file\n", workerID, fdToServe, lockIsSet ? "opened and locked" : "opened");
                                 	fcpSend(FCP_ACK, 0, NULL, fdToServe);
                                 }
                             }
@@ -643,10 +650,14 @@ static int workerDisconnectClient(int workerN, int fdToServe){
 	}
 }
 
-
+#define TIME_STRING_SIZE 20
 //Logging thread
 static void* loggingThread(void* arg){
 	char* logBuffer = malloc(LOG_BUFFER_SIZE);
+	char* timeBuffer = NULL;
+	if(logTimeFormat != NoTime){
+		timeBuffer = malloc(TIME_STRING_SIZE);
+	}
 	printf("[Logging]: Logging thread started\n");
 	int logFileDescriptor = open(logFilePath, O_CREAT | logMode | O_WRONLY, 0644);
 	if(logFileDescriptor < 0){
@@ -660,12 +671,38 @@ static void* loggingThread(void* arg){
 				break;
 			}
 			size_t msgLen =  strlen(logBuffer);
+			
+			switch(logTimeFormat) {
+				case NoTime:{
+					break;
+				}
+				default:{
+					time_t now = time(NULL);
+					if(logTimeFormat == Formatted){
+						struct tm *t = localtime(&now);
+						strftime(timeBuffer + 1, TIME_STRING_SIZE - 1, "%y/%m/%d %H:%M:%S", t);
+					}else{
+						snprintf(timeBuffer + 1, TIME_STRING_SIZE - 1, "%lu", now);
+					}
+					timeBuffer[0] = '[';
+					size_t timelen = strlen(timeBuffer);
+					timeBuffer[timelen] = ']';
+					timeBuffer[timelen + 1] = 0;
+			
+					writen(logFileDescriptor, timeBuffer, timelen + 1);
+					writen(1, timeBuffer, timelen + 1);
+				}
+			}
+			
 			writen(logFileDescriptor, logBuffer, msgLen);
 			writen(1, logBuffer, msgLen + 1);
 		}
 		if(close(logFileDescriptor)){
 			perror("Error while closing logging file");
 		}
+	}
+	if(timeBuffer != NULL){
+		free(timeBuffer);
 	}
 	free(logBuffer);
 	printf("[Logging]: Logging thread stopped\n");
@@ -770,6 +807,16 @@ int main(int argc, char** argv){
 					compressionAlgorithm = None;
 				}
 				free(fileCompressionParameter);
+			}
+			
+			char* logTimeFormattedParameter = getStringValue(configArgs, "logTimeFormat");
+			if(logTimeFormattedParameter != NULL){
+				if(strcmp(logTimeFormattedParameter, "none") == 0){
+					logTimeFormat = NoTime;
+				}else if(strcmp(logTimeFormattedParameter, "formatted") == 0){
+					logTimeFormat = Formatted;
+				}
+				free(logTimeFormattedParameter);
 			}
 			
 			char* endptr = NULL;
