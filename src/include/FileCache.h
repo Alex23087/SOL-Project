@@ -12,8 +12,8 @@
 
 
 typedef enum CompressionAlgorithm{
-	None,
-	Miniz
+    Uncompressed,
+    Miniz
 } CompressionAlgorithm;
 
 typedef struct CachedFile{
@@ -64,6 +64,8 @@ bool fileExists(FileCache* fileCache, const char* filename);
 void freeCachedFile(CachedFile* file);
 
 void freeFileCache(FileCache** fileCache);
+
+size_t getUncompressedSize(CachedFile* file);
 
 CachedFile* getFile(FileCache* fileCache, const char* filename);
 

@@ -69,7 +69,8 @@ void addToFdSetUpdatingMax(int fd, fd_set* fdSet, int* maxFd){
 void closeAllClientDescriptors(){
 	pthread_rwlock_wrlock_error(&clientListLock, "Error while locking client list");
 	while(clientList != NULL){
-		serverDisconnectClientL(clientList->descriptor, false);
+        int desc = clientList->descriptor;
+		serverDisconnectClientL(desc, false);
 	}
 	pthread_rwlock_unlock_error(&clientListLock, "Error while unlocking client list");
 }
@@ -202,6 +203,10 @@ int serverEvictFile(const char* fileToExclude, const char* operation, int fdToSe
 	}else{
 		serverLog("[Worker #%d]: %s request can't be fulfilled because of a capacity fault, evicting file \"%s\"\n", workerID, operation, evictedFileName);
 		CachedFile* evictedFile = getFile(fileCache, evictedFileName);
+        if(evictedFile == NULL  ){
+            serverLog("[Worker #%d]: %s request can't be fulfilled because of a capacity fault, no file can be evicted to fulfill it\n", workerID, operation);
+            return -1;
+        }
 		pthread_mutex_lock_error(evictedFile->lock, "Error while locking on file");
 		char* evictedFileBuffer = NULL;
 		size_t evictedFileSize = 0;

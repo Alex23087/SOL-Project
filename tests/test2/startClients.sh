@@ -8,7 +8,7 @@ TMPFOLDER="$(dirname "$0")/tmp"
 
 for file in "$SMALLFILEFOLDER"/* "$MEDIUMFILEFOLDER"/*
 do
-	./client -f /tmp/LSOfilestorage.sk -p -t 200 -D $TMPFOLDER -W $file &
+	./client -f /tmp/LSOfilestorage.sk -p -t 200 -D "$TMPFOLDER" -W "$file" &
 	sleep 0.2
 done
 

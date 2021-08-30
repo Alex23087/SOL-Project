@@ -14,7 +14,6 @@
 extern bool verbose;
 
 
-
 int appendToFile(const char* pathname, void* buf, size_t size, const char* dirname);
 
 int closeConnection(const char *sockname);

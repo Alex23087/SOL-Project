@@ -1,6 +1,7 @@
 #!/bin/bash
 
 FILEFOLDER="$(dirname "$0")/../cats"
+SMALLFILEFOLDER="/mnt/e/Progetti/SOL-Project/Screenshots"
 SMALLFILEFOLDER="$FILEFOLDER/small"
 MEDIUMFILEFOLDER="$FILEFOLDER/medium"
 BIGFILEFOLDER="$FILEFOLDER/big"
@@ -19,8 +20,7 @@ do
 	then
 		FILE1="${files[$RANDOM % ${#files[@]}]}"
 		FILE2="${files[$RANDOM % ${#files[@]}]}"
-
-		./client -f /tmp/LSOfilestorage.sk -t 0 -D $TMPFOLDER -d $TMPFOLDER -W $FILE1 -R n=4 -c $FILE1 -W $FILE2 -c $FILE2&
+		./client -f /tmp/LSOfilestorage.sk -t 0 -p -D "$TMPFOLDER" -d "$TMPFOLDER" -W "$FILE1" -r "$FILE1" -c "$FILE1" -W "$FILE2" -c "$FILE2"&
 		CURRENTCLIENTS=$((CURRENTCLIENTS + 1))
 	else
 		wait -n

@@ -17,21 +17,31 @@ int main() {
     */
     setbuf(stdout, NULL); //Set print buffer to 0 because of problems with the IDE
     
-    if(1){
+    if(0){
     	const int len = 3;
     	char* argv[len];
     	argv[0] = "server";
     	argv[1] = "-c";
-    	argv[2] = "/mnt/e/Progetti/SOL-Project/tests/test2/config.txt";
+    	argv[2] = "/mnt/e/Progetti/SOL-Project/tests/test3/config.txt";
     	serverMain(len, (char **) argv);
     }else{
-    	const int len = 5;
+    	const int len = 14;
     	char* argv[len];
     	argv[0] = "client";
-    	argv[1] = "-w";
-    	argv[2] = "/mnt/e/Progetti/SOL-Project/tests/test1/files/tmp/config.txt";
-    	argv[3] = "-f";
-    	argv[4] = "/tmp/LSOfilestorage.sk";
+        argv[1] = "-f";
+        argv[2] = "/tmp/LSOfilestorage.sk";
+        argv[3] = "-t";
+        argv[4] = "0";
+        argv[5] = "-p";
+        argv[6] = "-D";
+        argv[7] = "/mnt/e/Progetti/SOL-Project/tests/test3/tmp";
+        argv[8] = "-d";
+        argv[9] = "/mnt/e/Progetti/SOL-Project/tests/test3/tmp";
+        argv[10] = "-W";
+        argv[11] = "/mnt/e/Progetti/SOL-Project/tests/cats/small/ion.h";
+        argv[12] = "-r";
+        argv[13] = "/mnt/e/Progetti/SOL-Project/tests/cats/small/ion.h";
+
     	clientMain(len, (char **) argv);
     }
     return 0;

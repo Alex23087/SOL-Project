@@ -271,7 +271,7 @@ int main(int argc, char** argv){
 				char* savePtr = NULL;
 				char* token = strtok_r(currentCommand->parameter.stringValue, ",", &savePtr);
 				while(token != NULL) {
-					if(openFile2(token, cacheMissFolderPath, O_CREATE | O_LOCK)){
+					if(openFile(token, O_CREATE | O_LOCK)){
 						perror("Error while opening file");
 						finished = true;
 					}else{
@@ -300,7 +300,7 @@ int main(int argc, char** argv){
 						perror("Error while locking file");
 						finished = true;
 					}else{
-						char* fileBuffer;
+						char* fileBuffer = NULL;
 						size_t fileSize = 0;
 						errno = 0;
 						if(readFile(token, (void**)(&fileBuffer), &fileSize)){
@@ -331,7 +331,9 @@ int main(int argc, char** argv){
 								printIfVerbose("No output directory specified, not saving file\n");
 							}
 						}
-						free(fileBuffer);
+                        if(fileBuffer != NULL) {
+                            free(fileBuffer);
+                        }
 					}
 					token = strtok_r(NULL, ",", &savePtr);
 				}
@@ -511,7 +513,6 @@ int main(int argc, char** argv){
 		free(currentCommand);
 		usleep(timeBetweenRequests * 1000);
 	}
-	
 	
 	closeConnection(socketPath);
 	

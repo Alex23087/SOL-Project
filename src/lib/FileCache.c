@@ -20,7 +20,14 @@ static void freeFileList(FileList** fileList){
 
 static CachedFile* initCachedFile(const char* filename){
     CachedFile* out = malloc(sizeof(CachedFile));
+    if(out == NULL){
+        return NULL;
+    }
     out->lock = malloc(sizeof(pthread_mutex_t));
+    if(out->lock == NULL){
+        free(out);
+        return NULL;
+    }
     if(pthread_mutex_init(out->lock, NULL)){
         perror("Error while initializing lock for file");
         free(out->lock);
@@ -28,13 +35,14 @@ static CachedFile* initCachedFile(const char* filename){
         return NULL;
     }
 
-    size_t len = strlen(filename);
+    size_t len = strnlen(filename, MAX_FILENAME_SIZE);
     out->filename = malloc(len + 1);
     strncpy(out->filename, filename, len);
     out->filename[len] = '\0';
     out->size = 0;
     out->contents = NULL;
     out->lockedBy = -1;
+    out->compression = Uncompressed;
     return out;
 }
 
@@ -76,11 +84,14 @@ bool canFitNewFile(FileCache* fileCache){
 }
 
 CachedFile* createFile(FileCache* fileCache, const char* filename){
+    CachedFile* newFile = initCachedFile(filename);
+    if(newFile == NULL){
+        return NULL;
+    }
     fileCache->current.fileNumber++;
     if(fileCache->current.fileNumber > fileCache->maxReached.fileNumber){
         fileCache->maxReached.fileNumber = fileCache->current.fileNumber;
     }
-    CachedFile* newFile = initCachedFile(filename);
     addFile(&(fileCache->files), newFile);
     return newFile;
 }
@@ -90,16 +101,31 @@ bool fileExists(FileCache* fileCache, const char* filename){
 }
 
 void freeCachedFile(CachedFile* file){
-    free(file->contents);
-    free(file->filename);
+//    pthread_mutex_t* lock = file->lock;
+//    pthread_mutex_lock(lock);
+    if(file->contents != NULL) {
+        free(file->contents);
+        file->contents = NULL;
+    }
+    if(file->filename != NULL) {
+        free(file->filename);
+        file->filename = NULL;
+    }
     free(file->lock);
+    file->lock = NULL;
     free(file);
+    file = NULL;
+//    pthread_mutex_unlock(lock);
 }
 
 void freeFileCache(FileCache** fileCache){
     freeFileList(&((*fileCache)->files));
     free(*fileCache);
     *fileCache = NULL;
+}
+
+size_t getUncompressedSize(CachedFile* file){
+    return file->compression == Uncompressed ? file->size : file->uncompressedSize;
 }
 
 CachedFile* getFile(FileCache* fileCache, const char* filename){
@@ -193,7 +219,7 @@ char* readCachedFile(CachedFile* file, char** buffer, size_t* size){
 				return *buffer;
 			}
 		}
-		case None:
+		case Uncompressed:
 		default:{
 			*size = getFileSize(file);
 			*buffer = malloc(*size);
@@ -226,7 +252,7 @@ size_t storeFile(FileCache* fileCache, CachedFile* file, char* contents, size_t 
 				}
 				file->size = size;
 				file->contents = contents;
-				file->compression = None;
+				file->compression = Uncompressed;
 				return size;
 			}else{
 				//Compression successful
@@ -242,7 +268,7 @@ size_t storeFile(FileCache* fileCache, CachedFile* file, char* contents, size_t 
 				return compressedSize;
 			}
 		}
-		case None:
+		case Uncompressed:
 		default:{
 			//Compression not enabled
 			fileCache->current.size += size;
@@ -251,7 +277,7 @@ size_t storeFile(FileCache* fileCache, CachedFile* file, char* contents, size_t 
 			}
 			file->size = size;
 			file->contents = contents;
-			file->compression = None;
+			file->compression = Uncompressed;
 			return size;
 		}
 	}

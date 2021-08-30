@@ -277,6 +277,7 @@ int lockFile(const char* pathname){
                 }
                 default:{
                     success = false;
+                    errno = EPROTO;
                     break;
                 }
             }
@@ -441,8 +442,10 @@ int readFile(const char* pathname, void** buf, size_t* size){
 		printIfVerbose("Read request sent\n");
 
 		char fcpBuffer[FCP_MESSAGE_LENGTH];
-		ssize_t bytesRead = readn(activeConnectionFD, fcpBuffer, FCP_MESSAGE_LENGTH);
+        ssize_t bytesRead = readn(activeConnectionFD, fcpBuffer, FCP_MESSAGE_LENGTH);
 		FCPMessage* message = fcpMessageFromBuffer(fcpBuffer);
+
+        printf("%ld, %s\n", bytesRead, fcpBuffer);
 
 		if(bytesRead != FCP_MESSAGE_LENGTH){
 			success = false;

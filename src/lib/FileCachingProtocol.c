@@ -192,7 +192,7 @@ FCPMessage* fcpMessageFromBuffer(char buffer[FCP_MESSAGE_LENGTH]){
 void fcpSend(FCPOpcode operation, int32_t size, char* filename, int fd){
 	FCPMessage* message = fcpMakeMessage(operation, size, filename);
 	char* buffer = fcpBufferFromMessage(*message);
-	writen(fd, buffer, FCP_MESSAGE_LENGTH);
+    writen(fd, buffer, FCP_MESSAGE_LENGTH);
 	free(message);
 	free(buffer);
 }
@@ -206,7 +206,8 @@ void freeClientList(ClientList** clientList){
 }
 
 bool isFileOpenedByClient(ClientList* list, const char* filename, int descriptor){
-	return isFileOpen(*getFileListForDescriptor(list, descriptor), filename);
+    OpenFilesList** filesList = getFileListForDescriptor(list, descriptor);
+	return filesList == NULL ? false : isFileOpen(*filesList, filename);
 }
 
 void setFileClosed(ClientList* list, int descriptor, const char* filename){

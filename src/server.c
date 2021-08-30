@@ -82,6 +82,26 @@ static void* signalHandlerThread(void* arg){
 }
 
 
+bool serverLockFileL(int workerID, int fdToServe, const char* filename, CachedFile *file, bool sendAck) {
+    bool locked = false;
+    pthread_mutex_lock_error(file->lock, "Error while locking file");
+    if(file->lockedBy == -1){
+        locked = true;
+        file->lockedBy = fdToServe;
+    }
+    pthread_mutex_unlock_error(file->lock, "Error while unlocking file");
+
+    if(locked){
+        serverLog("[Worker #%d]: Client %d successfully locked the file\n", workerID, fdToServe);
+        if(sendAck) {
+            fcpSend(FCP_ACK, 0, NULL, fdToServe);
+        }
+    }else{
+        serverLog("[Worker #%d]: Client %d has to wait for lock\n", workerID, fdToServe);
+        updateClientStatusL(WaitingForLock, 0, filename, fdToServe);
+    }
+    return locked;
+}
 
 //Worker thread
 static void* workerThread(void* arg){
@@ -156,14 +176,18 @@ static void* workerThread(void* arg){
                             if(error == 0){
                                 //Client can write to file, check for capacity faults
                                 bool capacityError = false;
-                                pthread_rwlock_rdlock_error(&fileCacheLock, "Error while locking file cache");
+                                pthread_rwlock_wrlock_error(&fileCacheLock, "Error while locking file cache");
                                 pthread_mutex_lock_error(file->lock, "Error while locking on file");
                                 while(!canFitNewData(fileCache, fcpMessage->filename, fcpMessage->control, append)){
                                 	if(serverEvictFile(fcpMessage->filename, append ? "Append" : "Write", fdToServe, workerID)){
                                 		capacityError = true;
+                                        break;
                                 	}
                                 }
                                 pthread_mutex_unlock_error(file->lock, "Error while unlocking on file");
+                                if(capacityError && getFileSize(file) == 0){
+                                    serverRemoveFile(file->filename, fdToServe);
+                                }
                                 pthread_rwlock_unlock_error(&fileCacheLock, "Error while unlocking file cache");
 
                                 if(capacityError){
@@ -186,6 +210,13 @@ static void* workerThread(void* arg){
                             //Client has issued an open request: check legitimacy of the request, send error or open and send ack, warn master
                             serverLog("[Worker #%d]: Client %d issued op: %d (FCP_OPEN), flags: %d, filename: \"%s\"\n", workerID, fdToServe, fcpMessage->op, fcpMessage->control, fcpMessage->filename);
 
+                            if(fcpMessage->control != 0 && fcpMessage->control != 1 && fcpMessage->control != 2 && fcpMessage->control != 3){
+                                //Invalid flags
+                                serverLog("[Worker #%d]: Client %d has requested an invalid open with flags %d\n", workerID, fdToServe, fcpMessage->control);
+                                workerDisconnectClient(workerID, fdToServe);
+                                break;
+                            }
+
                             int error = 0;
                             bool exists = fileExistsL(fcpMessage->filename);
 
@@ -201,7 +232,7 @@ static void* workerThread(void* arg){
                                 fcpSend(FCP_ERROR, error, NULL, fdToServe);
                             }else{
                             	bool capacityError = false;
-                                CachedFile* file;
+                                CachedFile* file = NULL;
                                 pthread_rwlock_wrlock_error(&fileCacheLock, "Error while locking on file cache");
                                 if(createIsSet){
                                 	if(!canFitNewFile(fileCache)){
@@ -210,26 +241,33 @@ static void* workerThread(void* arg){
                                 	    }
                                 	}
                                 	if(!capacityError){
-                                		file = createFile(fileCache, fcpMessage->filename);
+                                        char* fn = malloc(MAX_FILENAME_SIZE);
+                                        strncpy(fn, fcpMessage->filename, MAX_FILENAME_SIZE-1);
+                                		file = createFile(fileCache, fn);
+                                        free(fn);
                                 	}
                                 }else{
-                                    file = getFile(fileCache, fcpMessage->filename);
+                                    char* fn = malloc(MAX_FILENAME_SIZE);
+                                    strncpy(fn, fcpMessage->filename, MAX_FILENAME_SIZE-1);
+                                    file = getFile(fileCache, fn);
+                                    free(fn);
                                 }
                                 pthread_rwlock_unlock_error(&fileCacheLock, "Error while unlocking on file cache");
 								
-                                if(capacityError){
+                                if(capacityError || file == NULL){
                                 	fcpSend(FCP_ERROR, EMFILE, NULL, fdToServe);
                                 }else{
+                                    pthread_rwlock_wrlock_error(&fileCacheLock, "Error while locking on file cache");
+                                    setFileOpened(clientList, fdToServe, fcpMessage->filename);
+                                    pthread_rwlock_unlock_error(&fileCacheLock, "Error while unlocking on file cache");
+
                                 	bool lockIsSet = FCP_OPEN_FLAG_ISSET(fcpMessage->control, O_LOCK);
                                 	if(lockIsSet){
-                                		pthread_mutex_lock_error(file->lock, "Error while locking file");
-                                		file->lockedBy = fdToServe;
-                                		pthread_mutex_unlock_error(file->lock, "Error while unlocking file");
+                                		bool locked = serverLockFileL(workerID, fdToServe, fcpMessage->filename, file, false);
+                                        if(!locked){
+                                            break;
+                                        }
                                 	}
-
-                                	pthread_rwlock_wrlock_error(&fileCacheLock, "Error while locking on file cache");
-                                	setFileOpened(clientList, fdToServe, fcpMessage->filename);
-                                	pthread_rwlock_unlock_error(&fileCacheLock, "Error while unlocking on file cache");
 
                                 	serverLog("[Worker #%d]: Client %d successfully %s the file\n", workerID, fdToServe, lockIsSet ? "opened and locked" : "opened");
                                 	fcpSend(FCP_ACK, 0, NULL, fdToServe);
@@ -269,7 +307,7 @@ static void* workerThread(void* arg){
                             if(error == 0){
                                 //Set client status and send file info to client
                                 pthread_mutex_lock_error(file->lock, "Error while locking file");
-                                size_t fileSize = getFileSize(file);
+                                size_t fileSize = getUncompressedSize(file);
                                 pthread_mutex_unlock_error(file->lock, "Error while unlocking file");
 
                                 updateClientStatusL(ReceivingFile, (int)fileSize, fcpMessage->filename, fdToServe);
@@ -352,20 +390,8 @@ static void* workerThread(void* arg){
                                 if(isOpen){
                                     CachedFile* file = getFileL(fcpMessage->filename);
 
-                                    pthread_mutex_lock_error(file->lock, "Error while locking file");
-                                    if(file->lockedBy == -1){
-                                    	locked = true;
-                                    	file->lockedBy = fdToServe;
-                                    }
-                                    pthread_mutex_unlock_error(file->lock, "Error while unlocking file");
+                                    locked = serverLockFileL(workerID, fdToServe, fcpMessage->filename, file, true);
 
-                                    if(locked){
-                                    	serverLog("[Worker #%d]: Client %d successfully locked the file\n", workerID, fdToServe);
-                                    	fcpSend(FCP_ACK, 0, NULL, fdToServe);
-                                    }else{
-                                    	serverLog("[Worker #%d]: Client %d has to wait for lock\n", workerID, fdToServe);
-                                    	updateClientStatusL(WaitingForLock, 0, fcpMessage->filename, fdToServe);
-                                    }
                                 }else{
                                     error = EBADF;
                                     serverLog("[Worker #%d]: Client %d tried to lock a file that it didn't open\n", workerID, fdToServe);
@@ -472,19 +498,23 @@ static void* workerThread(void* arg){
                             FileList* current = fileCache->files;
                             while(((n <= 0) || (counter < n)) && current != NULL){
                                 pthread_mutex_lock_error(current->file->lock, "Error while locking file");
-                                size_t fileSize = 0;
-                                char* fileBuffer = NULL;
-                                readCachedFile(current->file, &fileBuffer, &fileSize);
+                                if((current->file->lockedBy == -1 || current->file->lockedBy == fdToServe) && getFileSize(current->file) != 0) {
+                                    size_t fileSize = 0;
+                                    char *fileBuffer = NULL;
+                                    readCachedFile(current->file, &fileBuffer, &fileSize);
 
-                                serverLog("[Worker #%d]: Sending file \"%s\" to client %d\n", workerID, current->file->filename, fdToServe);
-                                fcpSend(FCP_WRITE, fileSize, current->file->filename, fdToServe);
-                                ssize_t bytesTransferred = writen(fdToServe, fileBuffer, fileSize);
-                                serverLog("[Worker #%d]: Sent file \"%s\" to client %d, bytes transferred: %ld\n", workerID, current->file->filename, fdToServe, bytesTransferred);
+                                    serverLog("[Worker #%d]: Sending file \"%s\" to client %d\n", workerID,
+                                              current->file->filename, fdToServe);
+                                    fcpSend(FCP_WRITE, fileSize, current->file->filename, fdToServe);
+                                    ssize_t bytesTransferred = writen(fdToServe, fileBuffer, fileSize);
+                                    serverLog("[Worker #%d]: Sent file \"%s\" to client %d, bytes transferred: %ld\n",
+                                              workerID, current->file->filename, fdToServe, bytesTransferred);
 
-                                free(fileBuffer);
+                                    free(fileBuffer);
+                                    counter++;
+                                }
                                 pthread_mutex_unlock_error(current->file->lock, "Error while unlocking file");
                                 current = current->next;
-                                counter++;
                             }
                             pthread_rwlock_unlock_error(&fileCacheLock, "Error while unlocking file cache");
 
@@ -518,8 +548,6 @@ static void* workerThread(void* arg){
                     serverLog("[Worker #%d]: Client %d sent a different amount of bytes than advertised (%d vs %ld), disconnecting it\n", workerID, fdToServe, status.data.messageLength, bytesRead);
                     workerDisconnectClient(workerID, fdToServe);
                 }else{
-                    //TODO: Check if the message was longer than advertised and throw error
-
                     //Transfer completed successfully, send ack to client, set client status to connected, and send client served message to master
                     serverLog("[Worker #%d]: Received %s from client %d, %ld bytes transferred\n", workerID, append ? "data" : "file", fdToServe, bytesRead);
 
@@ -587,7 +615,7 @@ static void* workerThread(void* arg){
                 if(fcpBytesRead == 0){
                     //Client disconnected
                     if(workerDisconnectClient(workerID, fdToServe)){
-                        //TODO: Handle error
+                        perror("Error while disconnecting client");
                     }
                 }else{
                     FCPMessage* fcpMessage = fcpMessageFromBuffer(fcpBuffer);
@@ -804,7 +832,7 @@ int main(int argc, char** argv){
 			char* fileCompressionParameter = getStringValue(configArgs, "compression");
 			if(fileCompressionParameter != NULL){
 				if(strcmp(fileCompressionParameter, "none") == 0){
-					compressionAlgorithm = None;
+					compressionAlgorithm = Uncompressed;
 				}
 				free(fileCompressionParameter);
 			}
@@ -1082,7 +1110,6 @@ static int onW2MMessageReceived(int serverSocketDescriptor, fd_set* selectFdSet,
 			//Stop listening to incoming connections, close all connections, terminate
 			FD_ZERO(selectFdSet);
 			terminateServer(running);
-			
 			break;
 		}
 		case W2M_SIGNAL_HANG:{
