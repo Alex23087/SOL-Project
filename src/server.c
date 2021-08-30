@@ -576,7 +576,7 @@ static void* workerThread(void* arg){
                         }
                         pthread_mutex_unlock_error(file->lock, "Error while unlocking file");
                         if(storedSize == (append ? fileSize + bytesRead : fileSize)){
-	                        serverLog("[Worker #%d]: File not compressed\n", workerID);
+	                        serverLog("[Worker #%d]: File not compressed, size: %lu bytes\n", workerID, storedSize);
                         }else{
                         	serverLog("[Worker #%d]: File has been compressed, old size: %lu bytes, new size: %lu bytes\n", workerID, (append ? fileSize + bytesRead : fileSize), storedSize);
                         }

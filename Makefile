@@ -69,14 +69,14 @@ cleantest1:
 
 test2: cleantest2 all
 	(mkdir -p ./tests/test2/tmp && sleep 1 && chmod +x ./tests/test2/startClients.sh && ./tests/test2/startClients.sh) &
-	valgrind --leak-check=full --show-leak-kinds=all --track-origins=yes ./server -c tests/test2/config.txt
+	./server -c tests/test2/config.txt
 
 cleantest2:
 	rm -rf ./tests/test2/tmp
 
 test3: cleantest2 all
 	(mkdir -p ./tests/test3/tmp && sleep 1 && chmod +x ./tests/test3/startClients.sh && ./tests/test3/startClients.sh) &
-	valgrind --leak-check=full --show-leak-kinds=all --track-origins=yes ./server -c tests/test3/config.txt
+	./server -c tests/test3/config.txt
 
 cleantest3:
 	rm -rf ./tests/test3/tmp

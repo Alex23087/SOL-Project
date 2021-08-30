@@ -13,13 +13,10 @@ if [ ! -f "$LOGFILE" ]; then
     echo "File '$LOGFILE' does not exist."
     exit
 fi
-
 TEXT="$(tac "$LOGFILE" | sed '/Up and running/Q' | tac)"
-
 READS="$(echo "$TEXT" | grep "Sent file to client")"
 READCOUNT="$(echo "$READS" | grep -c .)"
 READAVG=0
-
 if [[ "$READCOUNT" -ne 0 ]]
 then
 	IFS=$'\n'
@@ -35,7 +32,6 @@ fi
 WRITES="$(echo "$TEXT" | grep "Received file from client")"
 WRITECOUNT="$(echo "$WRITES" | grep -c .)"
 WRITEAVG=0
-
 if [[ "$WRITECOUNT" -ne 0 ]]
 then
 	IFS=$'\n'
@@ -48,7 +44,6 @@ then
 	WRITEAVG=$((WRITEAVG / WRITECOUNT))
 fi
 
-
 echo "Number of reads: $READCOUNT, average size: $READAVG bytes"
 echo "Number of writes: $WRITECOUNT, average size: $WRITEAVG bytes"
 echo "Number of locks explicitly acquired (locks obtained with open-lock not counted): $(echo "$TEXT"  | grep -c "successfully locked")"
@@ -60,4 +55,36 @@ echo "Max files stored: $(echo "$TEXT" | grep -Eo "Max number of files stored.*"
 echo "Num files evicted: $(echo "$TEXT" | grep -Eo "Number of files evicted.*" | grep -Eo "[0-9]*")"
 echo "$TEXT" | grep -Eo "Worker #[0-9]* has served [0-9]* requests"
 echo "Max clients connected: $(echo "$TEXT" | grep -Eo "Max number of clients simultaneously connected.*" | grep -Eo "[0-9]*")"
+echo "Number of files compressed: $(echo "$TEXT" | grep -c "File has been compressed")"
 
+SIZECOMPRESSED=0
+SIZEUNCOMPRESSED=0
+
+STORES="$(echo "$TEXT" | grep "File has been compressed")"
+
+IFS=$'\n'
+for line in ${STORES//\\n/$cr}
+do
+	CURRENTSTORE="$(echo "$line" | grep -Eo "[0-9]* bytes" | grep -Eo "[0-9]*")"
+
+	CURRENTUNCOMPRESSED=$(echo $CURRENTSTORE | cut -d " " -f 1)
+	SIZEUNCOMPRESSED=$((SIZEUNCOMPRESSED + CURRENTUNCOMPRESSED))
+
+	CURRENTCOMPRESSED=$(echo $CURRENTSTORE | cut -d " " -f 2)
+	SIZECOMPRESSED=$((SIZECOMPRESSED + CURRENTCOMPRESSED))
+done
+
+
+STORES="$(echo "$TEXT" | grep "File not compressed")"
+
+IFS=$'\n'
+for line in ${STORES//\\n/$cr}
+do
+	CURRENTSTORE="$(echo "$line" | grep -Eo "[0-9]* bytes" | grep -Eo "[0-9]*")"
+	SIZEUNCOMPRESSED=$((SIZEUNCOMPRESSED + CURRENTSTORE))
+	SIZECOMPRESSED=$((SIZECOMPRESSED + CURRENTSTORE))
+done
+
+
+echo "Size compressed $SIZECOMPRESSED bytes, size uncompressed: $SIZEUNCOMPRESSED bytes, bytes saved: $((SIZEUNCOMPRESSED - SIZECOMPRESSED))"
+echo "Compression ratio: $(echo "scale=4; $SIZECOMPRESSED / $SIZEUNCOMPRESSED * 100" | bc -l)%"
