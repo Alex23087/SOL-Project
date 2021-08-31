@@ -14,7 +14,9 @@ if [ ! -f "$LOGFILE" ]; then
     exit
 fi
 TEXT="$(tac "$LOGFILE" | sed '/Up and running/Q' | tac)"
-READS="$(echo "$TEXT" | grep "Sent file to client")"
+
+
+READS="$(echo "$TEXT" | grep "Sent file to client" | grep -Eo "[0-9]* bytes" | grep -Eo "[0-9]*")"
 READCOUNT="$(echo "$READS" | grep -c .)"
 READAVG=0
 if [[ "$READCOUNT" -ne 0 ]]
@@ -22,14 +24,14 @@ then
 	IFS=$'\n'
 	for line in ${READS//\\n/$cr}
 	do
-		CURRENTREAD="$(echo "$line" | grep -Eo "[0-9]* bytes" | grep -Eo "[0-9]*")"
+		CURRENTREAD="$(echo "$line")"
 		READAVG=$((READAVG + CURRENTREAD))
 	done
 
 	READAVG=$((READAVG / READCOUNT))
 fi
 
-WRITES="$(echo "$TEXT" | grep "Received file from client")"
+WRITES="$(echo "$TEXT" | grep "Received file from client" | grep -Eo "[0-9]* bytes" | grep -Eo "[0-9]*")"
 WRITECOUNT="$(echo "$WRITES" | grep -c .)"
 WRITEAVG=0
 if [[ "$WRITECOUNT" -ne 0 ]]
@@ -37,7 +39,7 @@ then
 	IFS=$'\n'
 	for line in ${WRITES//\\n/$cr}
 	do
-		CURRENTWRITE="$(echo "$line" | grep -Eo "[0-9]* bytes" | grep -Eo "[0-9]*")"
+		CURRENTWRITE="$(echo "$line")"
 		WRITEAVG=$((WRITEAVG + CURRENTWRITE))
 	done
 
@@ -60,13 +62,12 @@ echo "Number of files compressed: $(echo "$TEXT" | grep -c "File has been compre
 SIZECOMPRESSED=0
 SIZEUNCOMPRESSED=0
 
-STORES="$(echo "$TEXT" | grep "File has been compressed")"
+STORES="$(echo "$TEXT" | grep "File has been compressed" | sed "s/[^0-9 ]//g; s/^[0-9]* *[0-9]* *//; s/ \{2,\}/ /")"
 
 IFS=$'\n'
 for line in ${STORES//\\n/$cr}
 do
-	CURRENTSTORE="$(echo "$line" | grep -Eo "[0-9]* bytes" | grep -Eo "[0-9]*")"
-
+	CURRENTSTORE="$(echo "$line")"
 	CURRENTUNCOMPRESSED=$(echo $CURRENTSTORE | cut -d " " -f 1)
 	SIZEUNCOMPRESSED=$((SIZEUNCOMPRESSED + CURRENTUNCOMPRESSED))
 
@@ -75,12 +76,12 @@ do
 done
 
 
-STORES="$(echo "$TEXT" | grep "File not compressed")"
+STORES="$(echo "$TEXT" | grep "File not compressed" | grep -Eo "[0-9]* bytes" | grep -Eo "[0-9]*")"
 
 IFS=$'\n'
 for line in ${STORES//\\n/$cr}
 do
-	CURRENTSTORE="$(echo "$line" | grep -Eo "[0-9]* bytes" | grep -Eo "[0-9]*")"
+	CURRENTSTORE="$(echo "$line")"
 	SIZEUNCOMPRESSED=$((SIZEUNCOMPRESSED + CURRENTSTORE))
 	SIZECOMPRESSED=$((SIZECOMPRESSED + CURRENTSTORE))
 done

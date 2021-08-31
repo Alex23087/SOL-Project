@@ -1,5 +1,7 @@
+#include <sys/time.h>
 #include "../include/FileCache.h"
 #include "../include/miniz.h"
+#include "../include/TimespecUtils.h"
 
 
 static void addFile(FileList** list, CachedFile* file){
@@ -43,6 +45,7 @@ static CachedFile* initCachedFile(const char* filename){
     out->contents = NULL;
     out->lockedBy = -1;
     out->compression = Uncompressed;
+    out->lastAccessed = getTimeStamp();
     return out;
 }
 
@@ -72,7 +75,6 @@ static void removeFileFromList(FileCache* fileCache, FileList** fileList, const 
         list = list->next;
     }
 }
-
 
 
 bool canFitNewData(FileCache* fileCache, const char* filename, size_t dataSize, bool append){
@@ -156,38 +158,59 @@ size_t getFileSize(CachedFile* file){
 
 const char* getFileToEvict(FileCache* fileCache, const char* fileToExclude){
     FileList* current = fileCache->files;
-    if(current == NULL){
-        return NULL;
-    }
-    if(strcmp(current->file->filename, fileToExclude) == 0){
-        current = current->next;
-        if(current == NULL){
-            return NULL;
-        }
-    }
-    while(current->next != NULL){
-    	//Skip locked files and the file specified as parameter
-        if(current->next->file->lockedBy != -1 || strcmp(current->next->file->filename, fileToExclude) == 0){
-            if(current->next->next == NULL){
-                break;
-            }else{
-                current = current->next->next;
+    switch (fileCache->cacheAlgorithm) {
+        default:
+        case FIFO:{
+            if(current == NULL){
+                return NULL;
             }
-        }else{
-            current = current->next;
+            if(strcmp(current->file->filename, fileToExclude) == 0){
+                current = current->next;
+                if(current == NULL){
+                    return NULL;
+                }
+            }
+            while(current->next != NULL){
+                //Skip locked files and the file specified as parameter
+                if(current->next->file->lockedBy != -1 || strcmp(current->next->file->filename, fileToExclude) == 0){
+                    if(current->next->next == NULL){
+                        break;
+                    }else{
+                        current = current->next->next;
+                    }
+                }else{
+                    current = current->next;
+                }
+            }
+
+            //If all the files are locked, then current->file will point to a locked file. We don't want to remove it
+            if(current->file->lockedBy == -1){
+                fileCache->filesEvicted++;
+                return current->file->filename;
+            }else{
+                return NULL;
+            }
         }
-    }
-    
-    //If all the files are locked, then current->file will point to a locked file. We don't want to remove it
-    if(current->file->lockedBy == -1){
-    	fileCache->filesEvicted++;
-    	return current->file->filename;
-    }else{
-    	return NULL;
+        case LRU:{
+            char* filename = NULL;
+            uint64_t currentMinTimestamp = UINT64_MAX;
+            while(current != NULL){
+                if(current->file->lockedBy == -1 && strncmp(current->file->filename, fileToExclude, MAX_FILENAME_SIZE) != 0 && current->file->lastAccessed < currentMinTimestamp){
+                    currentMinTimestamp = current->file->lastAccessed;
+                    filename = current->file->filename;
+                }
+                current = current->next;
+            }
+            if(filename != NULL){
+                fileCache->filesEvicted++;
+            }
+            return filename;
+            break;
+        }
     }
 }
 
-FileCache* initFileCache(unsigned int maxFiles, unsigned long maxSize, CompressionAlgorithm compressionAlgorithm){
+FileCache* initFileCache(unsigned int maxFiles, unsigned long maxSize, CompressionAlgorithm compressionAlgorithm, CacheAlgorithm cacheAlgorithm){
 	FileCache* out = malloc(sizeof(FileCache));
 	out->max.fileNumber = maxFiles;
 	out->max.size = maxSize;
@@ -198,10 +221,12 @@ FileCache* initFileCache(unsigned int maxFiles, unsigned long maxSize, Compressi
 	out->filesEvicted = 0;
 	out->files = NULL;
 	out->compressionAlgorithm = compressionAlgorithm;
+    out->cacheAlgorithm = cacheAlgorithm;
 	return out;
 }
 
 char* readCachedFile(CachedFile* file, char** buffer, size_t* size){
+    file->lastAccessed = getTimeStamp();
 	switch(file->compression){
 		case Miniz:{
 			*size = file->uncompressedSize;
@@ -235,7 +260,8 @@ void removeFileFromCache(FileCache* fileCache, const char* filename){
 
 size_t storeFile(FileCache* fileCache, CachedFile* file, char* contents, size_t size){
     fileCache->current.size -= getFileSize(file);
-	
+	file->lastAccessed = getTimeStamp();
+
 	switch(fileCache->compressionAlgorithm) {
 		case Miniz:{
 			//Miniz (zlib) compression

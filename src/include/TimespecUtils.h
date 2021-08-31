@@ -11,6 +11,8 @@ short compareTimes(const struct timespec lval, const struct timespec rval);
 
 struct timespec doubleToTimespec(double time);
 
+uint64_t getTimeStamp();
+
 struct timespec subtractTimes(const struct timespec lval, const struct timespec rval);
 
 double timespecToDouble(struct timespec time);

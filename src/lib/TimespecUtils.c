@@ -1,4 +1,6 @@
 #include <time.h>
+#include <bits/stdint-uintn.h>
+#include <sys/time.h>
 
 #include "../include/TimespecUtils.h"
 
@@ -20,6 +22,12 @@ struct timespec doubleToTimespec(double time){
     out.tv_sec = (long) time;
     out.tv_nsec = (time - out.tv_sec) * 1e9L;
     return out;
+}
+
+uint64_t getTimeStamp(){
+    struct timeval tv;
+    gettimeofday(&tv,NULL);
+    return tv.tv_sec*(uint64_t)1000000+tv.tv_usec;
 }
 
 struct timespec subtractTimes(const struct timespec lval, const struct timespec rval){

@@ -1,7 +1,8 @@
 CC = gcc
 override CFLAGS += -Wall -pedantic --std=gnu99
-.PHONY: all clean cleanall killserver intserver hupserver testlock testhangup test1 test2 test3 cleantestlock cleantesthangup cleantest1 cleantest2 cleantest3
-SERVERDEPS = server FileCache FileCachingProtocol ion miniz ParseUtils Queue ServerLib W2M
+MAKEFLAGS := --jobs=$(shell nproc)
+.PHONY: all clean cleanall killserver intserver hupserver testlock testhangup test1 test2 test3 cleantestlock cleantesthangup cleantest1 cleantest2 cleantest3 morefiles rmmorefiles stats
+SERVERDEPS = server FileCache FileCachingProtocol ion miniz ParseUtils Queue ServerLib TimespecUtils W2M
 CLIENTDEPS = client ClientAPI FileCachingProtocol ion ParseUtils PathUtils Queue TimespecUtils
 
 
@@ -29,7 +30,7 @@ build/%.o: src/lib/%.c
 
 
 
-cleanall: clean cleantest1 cleantest2 cleantest3
+cleanall: clean cleantest1 cleantest2 cleantest3 rmmorefiles
 	rm -f server client /tmp/LSOfilestorage.sk /tmp/LSOfilestorage.log
 
 clean:
@@ -81,3 +82,11 @@ test3: cleantest2 all
 cleantest3:
 	rm -rf ./tests/test3/tmp
 
+morefiles:
+	cp ./src/*.c ./src/lib/* ./src/include/* ./tests/cats/small/
+
+rmmorefiles:
+	rm -f ./tests/cats/small/*.c ./tests/cats/small/*.h
+
+stats:
+	chmod +x ./statistiche.sh && time ./statistiche.sh

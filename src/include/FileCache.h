@@ -24,6 +24,7 @@ typedef struct CachedFile{
 	int lockedBy;
 	pthread_mutex_t* lock;
 	CompressionAlgorithm compression;
+    uint64_t lastAccessed;
 } CachedFile;
 
 typedef struct FileList{
@@ -32,7 +33,8 @@ typedef struct FileList{
 } FileList;
 
 typedef enum CacheAlgorithm{
-	FIFO
+	FIFO,
+    LRU
 } CacheAlgorithm;
 
 typedef struct FileCacheStatistics{
@@ -75,7 +77,7 @@ size_t getFileSize(CachedFile* file);
 
 const char* getFileToEvict(FileCache* fileCache, const char* fileToExclude);
 
-FileCache* initFileCache(unsigned int maxFiles, unsigned long maxSize, CompressionAlgorithm compressionAlgorithm);
+FileCache* initFileCache(unsigned int maxFiles, unsigned long maxSize, CompressionAlgorithm compressionAlgorithm, CacheAlgorithm cacheAlgorithm);
 
 char* readCachedFile(CachedFile* file, char** buffer, size_t* size);
 

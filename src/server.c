@@ -18,7 +18,10 @@
 #include "include/ParseUtils.h"
 #include "include/Queue.h"
 #include "include/ServerLib.h"
+#include "include/TimespecUtils.h"
 #include "include/W2M.h"
+
+#define TIME_STRING_SIZE 20
 
 #define cleanup() \
 	unlink(socketPath);\
@@ -28,16 +31,16 @@
 typedef enum{
 	NoTime,
 	Timestamp,
+    TimestampMicro,
 	Formatted
 } LogTimeFormat;
 
 static unsigned int clientsConnectedMax = 0;
-static unsigned int* requestsServed;
 static Queue* incomingConnectionsQueue = NULL;
 static char* logFilePath = NULL;
 static short logMode = O_APPEND;
 static LogTimeFormat logTimeFormat = Timestamp;
-CompressionAlgorithm compressionAlgorithm = Miniz;
+static unsigned int* requestsServed;
 
 
 
@@ -678,7 +681,6 @@ static int workerDisconnectClient(int workerN, int fdToServe){
 	}
 }
 
-#define TIME_STRING_SIZE 20
 //Logging thread
 static void* loggingThread(void* arg){
 	char* logBuffer = malloc(LOG_BUFFER_SIZE);
@@ -691,7 +693,8 @@ static void* loggingThread(void* arg){
 	if(logFileDescriptor < 0){
 		perror("Error while opening log file");
 	}else{
-		printf("[Logging]: Opened file %s for logging\n", logFilePath);
+		printf("[Logging]: Opened file %s for logging, with mode %s\n", logFilePath, logMode == O_TRUNC ? "Trunc" : "Append");
+        printf("[Logging]: Time format: %s\n", logTimeFormat == NoTime ? "none" : logTimeFormat == Timestamp ? "timestamp" : "formatted");
 		while(true){
 			memset(logBuffer, 0, LOG_BUFFER_SIZE);
 			readn(logPipeDescriptors[0], logBuffer, LOG_BUFFER_SIZE);
@@ -699,28 +702,34 @@ static void* loggingThread(void* arg){
 				break;
 			}
 			size_t msgLen =  strlen(logBuffer);
-			
-			switch(logTimeFormat) {
-				case NoTime:{
-					break;
-				}
-				default:{
-					time_t now = time(NULL);
-					if(logTimeFormat == Formatted){
-						struct tm *t = localtime(&now);
-						strftime(timeBuffer + 1, TIME_STRING_SIZE - 1, "%y/%m/%d %H:%M:%S", t);
-					}else{
-						snprintf(timeBuffer + 1, TIME_STRING_SIZE - 1, "%lu", now);
-					}
-					timeBuffer[0] = '[';
-					size_t timelen = strlen(timeBuffer);
-					timeBuffer[timelen] = ']';
-					timeBuffer[timelen + 1] = 0;
-			
-					writen(logFileDescriptor, timeBuffer, timelen + 1);
-					writen(1, timeBuffer, timelen + 1);
-				}
-			}
+
+            if(logTimeFormat != NoTime){
+                switch(logTimeFormat){
+                    default:
+                    case Formatted:{
+                        time_t now = time(NULL);
+                        struct tm *t = localtime(&now);
+                        strftime(timeBuffer + 1, TIME_STRING_SIZE - 1, "%y/%m/%d %H:%M:%S", t);
+                        break;
+                    }
+                    case Timestamp:{
+                        time_t now = time(NULL);
+                        snprintf(timeBuffer + 1, TIME_STRING_SIZE - 1, "%lu", now);
+                        break;
+                    }
+                    case TimestampMicro:{
+                        snprintf(timeBuffer + 1, TIME_STRING_SIZE - 1, "%lu", getTimeStamp());
+                        break;
+                    }
+                }
+                timeBuffer[0] = '[';
+                size_t timelen = strlen(timeBuffer);
+                timeBuffer[timelen] = ']';
+                timeBuffer[timelen + 1] = 0;
+
+                writen(logFileDescriptor, timeBuffer, timelen + 1);
+                writen(1, timeBuffer, timelen + 1);
+            }
 			
 			writen(logFileDescriptor, logBuffer, msgLen);
 			writen(1, logBuffer, msgLen + 1);
@@ -744,6 +753,9 @@ int serverMain(int argc, char** argv){
 #else
 int main(int argc, char** argv){
 #endif
+
+    CacheAlgorithm cacheAlgorithm = FIFO;
+    CompressionAlgorithm compressionAlgorithm = Miniz;
 	char* configFilePath = "/mnt/e/Progetti/SOL-Project/config.txt";
 	unsigned short nWorkers = 10;
 	unsigned int maxFiles = 100;
@@ -828,14 +840,22 @@ int main(int argc, char** argv){
                 }
                 free(logModeParameter);
 			}
-			
-			char* fileCompressionParameter = getStringValue(configArgs, "compression");
-			if(fileCompressionParameter != NULL){
-				if(strcmp(fileCompressionParameter, "none") == 0){
-					compressionAlgorithm = Uncompressed;
-				}
-				free(fileCompressionParameter);
-			}
+
+            char* fileCompressionParameter = getStringValue(configArgs, "compression");
+            if(fileCompressionParameter != NULL){
+                if(strcmp(fileCompressionParameter, "none") == 0){
+                    compressionAlgorithm = Uncompressed;
+                }
+                free(fileCompressionParameter);
+            }
+
+            char* cacheAlgorithmParameter = getStringValue(configArgs, "cacheAlgorithm");
+            if(cacheAlgorithmParameter != NULL){
+                if(strcmp(cacheAlgorithmParameter, "LRU") == 0){
+                    cacheAlgorithm = LRU;
+                }
+                free(cacheAlgorithmParameter);
+            }
 			
 			char* logTimeFormattedParameter = getStringValue(configArgs, "logTimeFormat");
 			if(logTimeFormattedParameter != NULL){
@@ -843,7 +863,9 @@ int main(int argc, char** argv){
 					logTimeFormat = NoTime;
 				}else if(strcmp(logTimeFormattedParameter, "formatted") == 0){
 					logTimeFormat = Formatted;
-				}
+				}else if(strcmp(logTimeFormattedParameter, "timestampMicro") == 0) {
+                    logTimeFormat = TimestampMicro;
+                }
 				free(logTimeFormattedParameter);
 			}
 			
@@ -887,7 +909,7 @@ int main(int argc, char** argv){
 	}
 	
 	
-	fileCache = initFileCache(maxFiles, storageSize, compressionAlgorithm);
+	fileCache = initFileCache(maxFiles, storageSize, compressionAlgorithm, cacheAlgorithm);
 	
 	//Creating server listen socket
 	int serverSocketDescriptor = -1;
@@ -965,6 +987,12 @@ int main(int argc, char** argv){
 	
 	
 	//Main loop
+    serverLog("[Master]: Server successfully started with the following parameters:\n");
+    serverLog("[Master]: Number of workers: %d\n", nWorkers);
+    serverLog("[Master]: Capacity: %d files, %d bytes\n", maxFiles, storageSize);
+    serverLog("[Master]: Listening socket path: %s\n", socketPath);
+    serverLog("[Master]: Compression algorithm: %s\n", compressionAlgorithm == Miniz ? "zlib" : "none");
+    serverLog("[Master]: Caching algorithm: %s\n", cacheAlgorithm == FIFO ? "FIFO" : "LRU");
 	int maxFd = -1;
 	fd_set selectFdSet;
 	fd_set tempFdSet;
@@ -1033,6 +1061,14 @@ int main(int argc, char** argv){
         serverLog("[Master]: Worker #%u has served %u requests\n", i, requestsServed[i]);
     }
     free(requestsServed);
+
+    //Print list of files in the server
+    serverLog("[Master]: Files contained in the server:\n");
+    FileList* current = fileCache->files;
+    while(current != NULL){
+        serverLog("[Master]: \"%s\", %d bytes\n", current->file->filename, getUncompressedSize(current->file));
+        current = current->next;
+    }
 
 	//Send termination message and join on the log server
 	serverLog("%c", LOG_TERMINATE);
