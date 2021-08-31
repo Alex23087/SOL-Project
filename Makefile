@@ -1,7 +1,7 @@
 CC = gcc
 override CFLAGS += -Wall -pedantic --std=gnu99
 MAKEFLAGS = --jobs=$(shell nproc)
-.PHONY: all clean cleanall killserver intserver hupserver testlock testhangup test1 test2 test3 cleantestlock cleantesthangup cleantest1 cleantest2 cleantest3 morefiles rmmorefiles stats
+.PHONY: all clean cleanall killserver intserver hupserver testlock testhangup test1 test2 test3 cleantestlock cleantesthangup cleantest1 cleantest2 cleantest3 files morefiles rmmorefiles stats
 SERVERDEPS = server FileCache FileCachingProtocol ion miniz ParseUtils Queue ServerLib TimespecUtils W2M
 CLIENTDEPS = client ClientAPI FileCachingProtocol ion ParseUtils PathUtils Queue TimespecUtils
 
@@ -68,7 +68,7 @@ test1: cleantest1 all
 cleantest1:
 	rm -rf ./tests/test1/tmp
 
-test2: cleantest2 all
+test2: cleantest2 all files
 	(mkdir -p ./tests/test2/tmp && sleep 1 && chmod +x ./tests/test2/startClients.sh && ./tests/test2/startClients.sh) &
 	./server -c tests/test2/config.txt
 
@@ -81,6 +81,10 @@ test3: cleantest3 all morefiles
 
 cleantest3:
 	rm -rf ./tests/test3/tmp
+
+files: rmmorefiles
+	cp ./src/*.c ./src/lib/* ./src/include/* ./tests/cats/small/
+	chmod +x ./createMoreFiles.sh
 
 morefiles: rmmorefiles
 	@echo "Creating files for the test"

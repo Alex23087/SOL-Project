@@ -82,6 +82,7 @@ static void* signalHandlerThread(void* arg){
 
 
 //Worker thread
+//TODO: Code cleanup and DRY
 static void* workerThread(void* arg){
     int workerID = (int)(long)arg;
     serverLog("[Worker #%d]: Up and running\n", workerID);
@@ -1053,7 +1054,10 @@ int main(int argc, char** argv){
     serverLog("[Master]: Files contained in the server:\n");
     FileList* current = fileCache->files;
     while(current != NULL){
-        serverLog("[Master]: \"%s\", %d bytes\n", current->file->filename, getUncompressedSize(current->file));
+        size_t fileSize = getUncompressedSize(current->file);
+        if(fileSize > 0){ //Don't show empty files
+            serverLog("[Master]: \"%s\", %d bytes\n", current->file->filename, fileSize);
+        }
         current = current->next;
     }
 

@@ -173,7 +173,7 @@ void closeFileForEveryone(ClientList* list, const char* filename){
     }
 }
 
-//Creates a char buffer from a FCPMessage object
+//Serializes an FCPMessages into a char buffer
 char* fcpBufferFromMessage(FCPMessage message){
     char* out = malloc(FCP_MESSAGE_LENGTH);
     out = memcpy(out, &message, FCP_MESSAGE_LENGTH);
@@ -192,7 +192,7 @@ FCPMessage* fcpMakeMessage(FCPOpcode operation, int32_t size, char* filename){
     return message;
 }
 
-//Creates a FCPMessage object from a char buffer
+//Deserializes a FCPMessage object from a char buffer
 FCPMessage* fcpMessageFromBuffer(char buffer[FCP_MESSAGE_LENGTH]){
 	FCPMessage* out = malloc(FCP_MESSAGE_LENGTH);
 	memcpy(out, buffer, FCP_MESSAGE_LENGTH);

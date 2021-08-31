@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/un.h>
+#include <unistd.h>
 
 #include "../include/ClientAPI.h"
 #include "../include/FileCache.h"
@@ -186,6 +187,7 @@ void serverDisconnectClientL(int clientFd, bool lockClientList){
 	pthread_rwlock_wrlock_error(&fileCacheLock, "Error while locking file cache");
 	unlockAllFilesLockedByClient(fileCache, clientFd);
 	pthread_rwlock_unlock_error(&fileCacheLock, "Error while unlocking file cache");
+    //close(clientFd);
 }
 
 //Utility function to evict a file from the server

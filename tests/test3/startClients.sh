@@ -29,6 +29,6 @@ do
 done&
 
 sleep 30
-kill $!
+kill $! &
 make intserver
 exit

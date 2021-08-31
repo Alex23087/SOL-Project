@@ -68,7 +68,7 @@ typedef struct FCPMessage{
 	char op;
 	char filename[FCP_MAX_FILENAME_SIZE];
 } FCPMessage;
-#pragma pack() //Resetting previous packing settings
+#pragma pack() //Resetting default packing settings
 
 
 
