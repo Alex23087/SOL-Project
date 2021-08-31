@@ -13,10 +13,12 @@ int w2mPipeDescriptors[2];
 
 
 
+//Gets a 32bit int encoded in the message
 int getIntFromW2MMessage(char message[W2M_MESSAGE_LENGTH]){
 	return message[4] + (message[3] << 8) + (message[2] << 16) + (message[1] << 24);
 }
 
+//Creates a W2M message with the data specified
 char* makeW2MMessage(char message, int32_t data, char out[W2M_MESSAGE_LENGTH]){
 	out[0] = message;
 	switch(message){
@@ -37,6 +39,7 @@ char* makeW2MMessage(char message, int32_t data, char out[W2M_MESSAGE_LENGTH]){
 	return out;
 }
 
+//Makes a W2M message and sends it to the W2M pipe
 void w2mSend(char message, int32_t data){
 	char buffer[W2M_MESSAGE_LENGTH];
 	writen(w2mPipeDescriptors[1], makeW2MMessage(message, data, buffer), W2M_MESSAGE_LENGTH);

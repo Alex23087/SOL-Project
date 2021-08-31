@@ -75,18 +75,23 @@ test2: cleantest2 all
 cleantest2:
 	rm -rf ./tests/test2/tmp
 
-test3: cleantest2 all
+test3: cleantest3 all morefiles
 	(mkdir -p ./tests/test3/tmp && sleep 1 && chmod +x ./tests/test3/startClients.sh && ./tests/test3/startClients.sh) &
 	./server -c tests/test3/config.txt
 
 cleantest3:
 	rm -rf ./tests/test3/tmp
 
-morefiles:
+morefiles: rmmorefiles
+	@echo "Creating files for the test"
 	cp ./src/*.c ./src/lib/* ./src/include/* ./tests/cats/small/
+	chmod +x ./createMoreFiles.sh
+	./createMoreFiles.sh
+	@echo "Files created"
 
 rmmorefiles:
 	rm -f ./tests/cats/small/*.c ./tests/cats/small/*.h
 
 stats:
-	chmod +x ./statistiche.sh && time ./statistiche.sh
+	@chmod +x ./statistiche.sh
+	time ./statistiche.sh

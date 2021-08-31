@@ -11,11 +11,12 @@
 
 
 
+//Creates an ArgsList from a string, using the format decided for the config file
 static ArgsList* argsListNodeFromString(const char* input){
     ArgsList* out = initArgsListNode();
 
     size_t i = 0;
-    while(isalpha(input[i])){
+    while(isalpha(input[i])){ //Move forward to select the entire word (the argument's name)
         i++;
     }
 
@@ -23,20 +24,21 @@ static ArgsList* argsListNodeFromString(const char* input){
     strncpy(name, input, i);
     name[i] = '\0';
 
-    while(isspace(input[i])){
+    while(isspace(input[i])){ //Ignore whitespace
         i++;
     }
-    if(input[i] != '='){
+    if(input[i] != '='){ //There should be an = at this point
         fprintf(stderr, "Invalid format in config file: \"%s\"", input);
+        free(name);
 	    freeArgsListNode(out);
         return NULL;
     }
-    i++;
-    while(isspace(input[i])){
+    i++; //Skip the =
+    while(isspace(input[i])){ //Ignore whitespace
         i++;
     }
 
-    if(input[i] == '\"'){
+    if(input[i] == '\"'){ //If the next character is a ", then the parameter is of type string, otherwise long
         out->type = String;
         i++;
     }else{
@@ -47,9 +49,10 @@ static ArgsList* argsListNodeFromString(const char* input){
     void* value;
     switch(out->type) {
         case String:
-            while(input[i] != '\"'){
-                if(input[i] == '\n' || input[i] == EOF){
+            while(input[i] != '\"'){ //Move forward until we meet the closing "
+                if(input[i] == '\n' || input[i] == EOF){ //No closing " found
                     fprintf(stderr, "Invalid format in input: \"%s\"\n", input);
+                    free(name);
 	                freeArgsListNode(out);
 	                return NULL;
                 }
@@ -66,6 +69,8 @@ static ArgsList* argsListNodeFromString(const char* input){
             *(long*)value = strtol(&input[i], NULL, 10);
             if(errno != 0){
                 perror("Invalid long format in input\n");
+                free(name);
+                free(value);
                 freeArgsListNode(out);
                 return NULL;
             }
@@ -139,6 +144,7 @@ ArgsList* initArgsListNode(){
     return out;
 }
 
+//Reads a config file into an ArgsList list, using the format specified
 ArgsList* readConfigFile(const char* filename){
     ArgsList* head = NULL;
 

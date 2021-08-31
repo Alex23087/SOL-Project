@@ -51,6 +51,7 @@ static void sendErrorToAllClientsWaitingForLock(ClientList* clientList, const ch
 
 
 
+//Adds a file descriptor to a fd set, updating the int that stores the max fd in the set
 void addToFdSetUpdatingMax(int fd, fd_set* fdSet, int* maxFd){
     FD_SET(fd, fdSet);
     if(fd > *maxFd){
@@ -60,7 +61,7 @@ void addToFdSetUpdatingMax(int fd, fd_set* fdSet, int* maxFd){
 
 void closeAllClientDescriptors(){
 	pthread_rwlock_wrlock_error(&clientListLock, "Error while locking client list");
-	while(clientList != NULL){
+	while(clientList != NULL){ //clientList is updated by serverDisconnectClientL
         int desc = clientList->descriptor;
 		serverDisconnectClientL(desc, false);
 	}
@@ -187,6 +188,7 @@ void serverDisconnectClientL(int clientFd, bool lockClientList){
 	pthread_rwlock_unlock_error(&fileCacheLock, "Error while unlocking file cache");
 }
 
+//Utility function to evict a file from the server
 int serverEvictFile(const char* fileToExclude, const char* operation, int fdToServe, int workerID){
 	const char* evictedFileName = getFileToEvict(fileCache, fileToExclude);
 	if(evictedFileName == NULL){
@@ -213,6 +215,29 @@ int serverEvictFile(const char* fileToExclude, const char* operation, int fdToSe
 	}
 }
 
+//Utility function to lock a file, or to put the client in WaitingForLock mode if the lock can't be acquired now
+bool serverLockFileL(int workerID, int fdToServe, const char* filename, CachedFile *file, bool sendAck){
+    bool locked = false;
+    pthread_mutex_lock_error(file->lock, "Error while locking file");
+    if(file->lockedBy == -1 || file->lockedBy == fdToServe){
+        locked = true;
+        file->lockedBy = fdToServe;
+    }
+    pthread_mutex_unlock_error(file->lock, "Error while unlocking file");
+
+    if(locked){
+        serverLog("[Worker #%d]: Client %d successfully locked the file\n", workerID, fdToServe);
+        if(sendAck) {
+            fcpSend(FCP_ACK, 0, NULL, fdToServe);
+        }
+    }else{
+        serverLog("[Worker #%d]: Client %d has to wait for lock\n", workerID, fdToServe);
+        updateClientStatusL(WaitingForLock, 0, filename, fdToServe);
+    }
+    return locked;
+}
+
+//Log function with the same signature as printf, that sends the message to be logged to the logging thread
 void serverLog(const char* format, ...){
     va_list args;
     va_start(args, format);

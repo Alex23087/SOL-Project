@@ -7,7 +7,8 @@
 
 
 
-char* replaceBasename(const char* dirname, char* filename){
+//Replaces the directory name from filename to that specified in dirname
+char* replaceDirname(const char* dirname, char* filename){
 	size_t dirnameLen = strlen(dirname);
 	bool shouldAppendSeparator = (dirname[dirnameLen - 1] != '/');
 	

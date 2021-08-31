@@ -61,6 +61,8 @@ void serverDisconnectClientL(int clientFd, bool lockClientList);
 
 int serverEvictFile(const char* fileToExclude, const char* operation, int fdToServe, int workerID);
 
+bool serverLockFileL(int workerID, int fdToServe, const char* filename, CachedFile *file, bool sendAck);
+
 void serverLog(const char* format, ...);
 
 void serverRemoveFile(const char* filename, int workerID);

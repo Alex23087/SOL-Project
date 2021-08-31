@@ -29,6 +29,8 @@ static int activeConnectionFD = -1;
 bool verbose = false;
 
 
+//Utility function called by functions that have to save a file if the server sends one back,
+//such as openFile2, readNFiles and writeOrAppendFile
 static int receiveAndSaveFileFromServer(size_t filesize, const char* filename, const char* dirname){
     printIfVerbose("Receiving file from server (filename: \"%s\", bytes: %zu)\n", filename, filesize);
     size_t size = filesize;
@@ -37,15 +39,19 @@ static int receiveAndSaveFileFromServer(size_t filesize, const char* filename, c
     printIfVerbose("Received file from server, (%ld bytes)\n", fileSize);
 
     if(size != fileSize){
+        //The server has sent a message of size different from what it specified previously with the FCP_WRITE message.
+        //This violates the protocol
         errno = EPROTO;
         return -1;
     }
 
     if(dirname != NULL){
-        char* newFileName = replaceBasename(dirname, (char*)filename);
+        //Directory specified, the file has to be saved
+        char* newFileName = replaceDirname(dirname, (char *) filename);
         printIfVerbose("Filename: %s\n", newFileName);
         int fileDescriptor = open(newFileName, O_CREAT | O_WRONLY | O_TRUNC, 0644);
         if(fileDescriptor == -1){
+            //Error while opening the new file, errno doesn't need to be set, it's already set by open (provided free doesn't fail)
             free(newFileName);
             return -1;
         }
@@ -60,6 +66,7 @@ static int receiveAndSaveFileFromServer(size_t filesize, const char* filename, c
     return 0;
 }
 
+//Function used by both writeFile and appendFile, as the logic is the same, with few differences
 static int writeOrAppendFile(const char* pathname, void* buf, size_t size, const char* dirname, bool append){
     if(activeConnectionFD == -1){
         //Function called without an active connection
@@ -70,9 +77,11 @@ static int writeOrAppendFile(const char* pathname, void* buf, size_t size, const
     bool success = true;
     char* absolutePathname = realpath(pathname, NULL);
     if(absolutePathname == NULL){
+        //Couldn't determine canonical absolute path
         success = false;
     }else{
-        if(strlen(absolutePathname) > FCP_MESSAGE_LENGTH - 5){
+        if(strlen(absolutePathname) > FCP_MAX_FILENAME_SIZE){
+            //Name longer than the protocol allows
             errno = ENAMETOOLONG;
             return -1;
         }
@@ -87,6 +96,7 @@ static int writeOrAppendFile(const char* pathname, void* buf, size_t size, const
             struct stat fileStat;
             if(fstat(fileDescriptor, &fileStat)){
                 //Fstat failed, errno has already been set by it
+                close(fileDescriptor);
                 return -1;
             }
             size = fileStat.st_size;
@@ -101,68 +111,82 @@ static int writeOrAppendFile(const char* pathname, void* buf, size_t size, const
         ssize_t bytesRead = readn(activeConnectionFD, fcpBuffer, FCP_MESSAGE_LENGTH);
         FCPMessage* message = fcpMessageFromBuffer(fcpBuffer);
 
-        while(bytesRead != 0){
-            switch(message->op){
-                case FCP_ACK:{
-                    receivingCacheMissFiles = false;
-                    printIfVerbose("Server has sent ack back, starting transfer\n");
-                    if(append){
-                        writen(activeConnectionFD, buf, size);
-                    }else{
-                        char* fileBuffer = malloc(size);
-                        readn(fileDescriptor, fileBuffer, size);
-                        writen(activeConnectionFD, fileBuffer, size);
-                        free(fileBuffer);
-                    }
-                    printIfVerbose("File transfer complete, waiting for ack\n");
-                    if(readn(activeConnectionFD, fcpBuffer, FCP_MESSAGE_LENGTH) == FCP_MESSAGE_LENGTH){
-                        free(message);
-                        message = fcpMessageFromBuffer(fcpBuffer);
-
-                        switch(message->op) {
-                            case FCP_ACK:{
-                                printIfVerbose("Received ack from server, operation completed successfully\n");
-                                break;
-                            }
-                            default:{
-                                //fprintf(stderr, "Server sent an invalid reply, operation failed\n");
-                                errno = EPROTO; //EBADMSG EPROTO EMSGSIZE EILSEQ
-                                success = false;
-                                break;
-                            }
+        if(bytesRead == 0){
+            //First reply from server was empty, protocol error
+            success = false;
+            errno = EPROTO;
+        }else{
+            //Loop while the server sends replies, which can both be an FCP_ACK at which point the client starts sending the file
+            //or FCP_WRITE, in which case the client has to receive the files sent by the server
+            while(bytesRead != 0){
+                switch(message->op){
+                    case FCP_ACK:{
+                        //Sending file to server
+                        receivingCacheMissFiles = false;
+                        printIfVerbose("Server has sent ack back, starting transfer\n");
+                        if(append){
+                            writen(activeConnectionFD, buf, size);
+                        }else{
+                            char *fileBuffer = malloc(size);
+                            readn(fileDescriptor, fileBuffer, size);
+                            writen(activeConnectionFD, fileBuffer, size);
+                            free(fileBuffer);
                         }
-                    }else{
-                        //fprintf(stderr, "Server sent an invalid reply, operation failed\n");
+                        printIfVerbose("File transfer complete, waiting for ack\n");
+                        //Getting confirmation from the server
+                        if(readn(activeConnectionFD, fcpBuffer, FCP_MESSAGE_LENGTH) == FCP_MESSAGE_LENGTH){
+                            free(message);
+                            message = fcpMessageFromBuffer(fcpBuffer);
+
+                            switch (message->op){
+                                case FCP_ACK:{
+                                    printIfVerbose("Received ack from server, operation completed successfully\n");
+                                    break;
+                                }
+                                default:{
+                                    //Server sent an invalid reply, operation failed
+                                    errno = EPROTO; //EBADMSG EPROTO EMSGSIZE EILSEQ
+                                    success = false;
+                                    break;
+                                }
+                            }
+                        }else{
+                            //Server sent an invalid reply, operation failed
+                            errno = EPROTO;
+                            success = false;
+                        }
+                        break;
+                    }
+                    case FCP_WRITE:{
+                        //Server will send a file, receive it and save it or discard it
+                        receivingCacheMissFiles = true;
+                        if (receiveAndSaveFileFromServer(message->control, message->filename, dirname)) {
+                            success = false;
+                        }
+                        break;
+                    }
+                    case FCP_ERROR:{
+                        //There has been an error
+                        errno = message->control;
+                        success = false;
+                        break;
+                    }
+                    default:{
+                        //Server sent an invalid reply, operation failed
+                        success = false;
                         errno = EPROTO;
-                        success = false;
+                        break;
                     }
+                }
+                if(!success || !receivingCacheMissFiles){
+                    //Break on error or if the file was sent successfully
                     break;
                 }
-                case FCP_WRITE:{
-                    receivingCacheMissFiles = true;
-                    //Server will send a file
-                    if(receiveAndSaveFileFromServer(message->control, message->filename, dirname)){
-                        success = false;
-                    }
-                    break;
-                }
-                case FCP_ERROR:{
-                    errno = message->control;
-                    success = false;
-                    break;
-                }
-                default:{
-                    success = false;
-                    errno = EPROTO;
-                    break;
-                }
+                //Read the next message from the server otherwise
+                bytesRead = readn(activeConnectionFD, fcpBuffer, FCP_MESSAGE_LENGTH);
+                free(message);
+                message = fcpMessageFromBuffer(fcpBuffer);
             }
-            if(!success || !receivingCacheMissFiles){
-                break;
-            }
-            bytesRead = readn(activeConnectionFD, fcpBuffer, FCP_MESSAGE_LENGTH);
-            free(message);
-            message = fcpMessageFromBuffer(fcpBuffer);
         }
 
         free(message);
@@ -206,9 +230,11 @@ int closeFile(const char* pathname){
     bool success = true;
     char* absolutePathname = realpath(pathname, NULL);
     if(absolutePathname == NULL){
+        //Error while getting the canonical absolute path
         success = false;
     }else{
-        if(strlen(absolutePathname) > FCP_MESSAGE_LENGTH - 5){
+        if(strlen(absolutePathname) > FCP_MAX_FILENAME_SIZE){
+            //Filename too long for the protocol
             errno = ENAMETOOLONG;
             return -1;
         }
@@ -227,11 +253,14 @@ int closeFile(const char* pathname){
                 break;
             }
             case FCP_ERROR:{
+                //Something went wrong
                 errno =	message->control;
                 success = false;
                 break;
             }
             default:{
+                //Server has sent an invalid reply
+                errno = EPROTO;
                 success = false;
             }
         }
@@ -252,9 +281,11 @@ int lockFile(const char* pathname){
     bool success = true;
     char* absolutePathname = realpath(pathname, NULL);
     if(absolutePathname == NULL){
+        //Error while getting canonical absolute path
         success = false;
     }else{
-        if(strlen(absolutePathname) > FCP_MESSAGE_LENGTH - 5){
+        if(strlen(absolutePathname) > FCP_MAX_FILENAME_SIZE){
+            //The filename is too long for the protocol
             errno = ENAMETOOLONG;
             return -1;
         }
@@ -268,6 +299,7 @@ int lockFile(const char* pathname){
         FCPMessage* message = fcpMessageFromBuffer(fcpBuffer);
 
         if(bytesRead != FCP_MESSAGE_LENGTH){
+            //Server has sent an invalid reply
             errno = EPROTO;
             success = false;
         }else{
@@ -282,6 +314,7 @@ int lockFile(const char* pathname){
                     break;
                 }
                 default:{
+                    //Server has sent an invalid reply
                     success = false;
                     errno = EPROTO;
                     break;
@@ -322,9 +355,11 @@ int openConnection(const char* sockname, int msec, const struct timespec abstime
 
 	bool connectionSucceeded = false;
 	do{
+        //Attempt to connect
 		connectionSucceeded = !connect(clientSocketDescriptor, (struct sockaddr*)&serverAddress, sizeof(serverAddress));
 		if(!connectionSucceeded){
 			if(compareTimes(deadlineTime, endTime) >= 0){
+                //If the time remaining to the deadline is more than the step specified, wait for msec and try again
                 struct timespec ts = doubleToTimespec((double)msec / (double)1000);
                 nanosleep(&ts, NULL);
 			}else{
@@ -351,7 +386,8 @@ int openConnection(const char* sockname, int msec, const struct timespec abstime
 		activeConnectionFD = clientSocketDescriptor;
 		return 0;
 	}else{
-		errno = ENXIO; //ETIMEDOUT maybe?
+        //Couldn't connect to the server
+		errno = ENXIO;
 		return -1;
 	}
 }
@@ -370,9 +406,11 @@ int openFile2(const char* pathname, const char* dirname, int flags){
 	bool success = true;
 	char* absolutePathname = realpath(pathname, NULL);
 	if(absolutePathname == NULL){
+        //Couldn't determine canonical absolute path
 		success = false;
 	}else{
-		if(strlen(absolutePathname) > FCP_MESSAGE_LENGTH - 5){
+		if(strlen(absolutePathname) > FCP_MAX_FILENAME_SIZE){
+            //Filename too long for the protocol
 			errno = ENAMETOOLONG;
 			return -1;
 		}
@@ -387,9 +425,11 @@ int openFile2(const char* pathname, const char* dirname, int flags){
 		FCPMessage* message = NULL;
 
 		do{
+            //Get message from the server
 			bytesRead = readn(activeConnectionFD, fcpBuffer, FCP_MESSAGE_LENGTH);
 			message = fcpMessageFromBuffer(fcpBuffer);
 			if(bytesRead != FCP_MESSAGE_LENGTH){
+                //Invalid reply from the server
 				errno = EPROTO;
 				success = false;
 			}else{
@@ -405,8 +445,8 @@ int openFile2(const char* pathname, const char* dirname, int flags){
 						break;
 					}
 					case FCP_WRITE:{
-						receivingCacheMissFiles = true;
-						//Server will send a file
+                        //Server will send a file
+                        receivingCacheMissFiles = true;
 						if(receiveAndSaveFileFromServer(message->control, message->filename, dirname)){
 							success = false;
 						}
@@ -437,9 +477,11 @@ int readFile(const char* pathname, void** buf, size_t* size){
 	bool success = true;
 	char* absolutePathname = realpath(pathname, NULL);
 	if(absolutePathname == NULL){
+        //Couldn't determine canonical absolute path
 		success = false;
 	}else{
-		if(strlen(absolutePathname) > FCP_MESSAGE_LENGTH - 5){
+		if(strlen(absolutePathname) > FCP_MAX_FILENAME_SIZE){
+            //Filename too long for the protocol
 			errno = ENAMETOOLONG;
 			return -1;
 		}
@@ -448,6 +490,7 @@ int readFile(const char* pathname, void** buf, size_t* size){
 		fcpSend(FCP_READ, 0, (char*)absolutePathname, activeConnectionFD);
 		printIfVerbose("Read request sent\n");
 
+        //Get message from the server
 		char fcpBuffer[FCP_MESSAGE_LENGTH];
         ssize_t bytesRead = readn(activeConnectionFD, fcpBuffer, FCP_MESSAGE_LENGTH);
 		FCPMessage* message = fcpMessageFromBuffer(fcpBuffer);
@@ -455,12 +498,13 @@ int readFile(const char* pathname, void** buf, size_t* size){
         printf("%ld, %s\n", bytesRead, fcpBuffer);
 
 		if(bytesRead != FCP_MESSAGE_LENGTH){
+            //Invalid reply
 			success = false;
 			errno = EPROTO;
 		}else{
 			switch(message->op){
 				case FCP_WRITE:{
-					//Server will send the file
+					//Server will send the file, send ack and read the file in the output buffer
 					*size = message->control;
 					fcpSend(FCP_ACK, 0, NULL, activeConnectionFD);
 					*buf = malloc(*size);
@@ -499,6 +543,7 @@ int readNFiles(int N, const char* dirname){
     fcpSend(FCP_READ_N, N, NULL, activeConnectionFD);
     printIfVerbose("ReadN request sent\n");
 
+    //Get reply from server
     bool success = true;
     char fcpBuffer[FCP_MESSAGE_LENGTH];
     ssize_t bytesRead = readn(activeConnectionFD, fcpBuffer, FCP_MESSAGE_LENGTH);
@@ -539,6 +584,7 @@ int readNFiles(int N, const char* dirname){
         if(!success || finished){
             break;
         }
+        //Get next message from server
         bytesRead = readn(activeConnectionFD, fcpBuffer, FCP_MESSAGE_LENGTH);
         free(message);
         message = fcpMessageFromBuffer(fcpBuffer);
@@ -558,9 +604,11 @@ int removeFile(const char* pathname){
     bool success = true;
     char* absolutePathname = realpath(pathname, NULL);
     if(absolutePathname == NULL){
+        //Couldn't determine canonical absolute path
         success = false;
     }else{
-        if(strlen(absolutePathname) > FCP_MESSAGE_LENGTH - 5){
+        if(strlen(absolutePathname) > FCP_MAX_FILENAME_SIZE){
+            //Filename too long for the protocol
             errno = ENAMETOOLONG;
             return -1;
         }
@@ -569,11 +617,13 @@ int removeFile(const char* pathname){
         fcpSend(FCP_REMOVE, 0, (char*)absolutePathname, activeConnectionFD);
         printIfVerbose("Remove request sent\n");
 
+        //Read reply from the server
         char fcpBuffer[FCP_MESSAGE_LENGTH];
         ssize_t bytesRead = readn(activeConnectionFD, fcpBuffer, FCP_MESSAGE_LENGTH);
         FCPMessage* message = fcpMessageFromBuffer(fcpBuffer);
 
         if(bytesRead != FCP_MESSAGE_LENGTH){
+            //Server sent an invalid reply
             errno = EPROTO;
             success = false;
         }else{
@@ -588,6 +638,7 @@ int removeFile(const char* pathname){
                     break;
                 }
                 default:{
+                    //Server sent an invalid reply
                     errno = EPROTO;
                     success = false;
                     break;
@@ -615,9 +666,11 @@ int unlockFile(const char* pathname){
 	bool success = true;
 	char* absolutePathname = realpath(pathname, NULL);
 	if(absolutePathname == NULL){
+        //Couldn't determine canonical absolute path
 		success = false;
 	}else{
-		if(strlen(absolutePathname) > FCP_MESSAGE_LENGTH - 5){
+		if(strlen(absolutePathname) > FCP_MAX_FILENAME_SIZE){
+            //Filename too long for the protocol
 			errno = ENAMETOOLONG;
 			return -1;
 		}
@@ -626,11 +679,13 @@ int unlockFile(const char* pathname){
 		fcpSend(FCP_UNLOCK, 0, (char*)absolutePathname, activeConnectionFD);
 		printIfVerbose("Unlock request sent\n");
 
+        //Get reply from server
 		char fcpBuffer[FCP_MESSAGE_LENGTH];
 		ssize_t bytesRead = readn(activeConnectionFD, fcpBuffer, FCP_MESSAGE_LENGTH);
 		FCPMessage* message = fcpMessageFromBuffer(fcpBuffer);
 
 		if(bytesRead != FCP_MESSAGE_LENGTH){
+            //Invalid reply from server
 			errno = EPROTO;
 			success = false;
 		}else{
@@ -645,6 +700,7 @@ int unlockFile(const char* pathname){
 					break;
 				}
 				default:{
+                    //Invalid reply from server
 					errno = EPROTO;
 					success = false;
 					break;

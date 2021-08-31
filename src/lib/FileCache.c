@@ -4,6 +4,7 @@
 #include "../include/TimespecUtils.h"
 
 
+//Adds a file to the head of a list of files
 static void addFile(FileList** list, CachedFile* file){
     FileList* newNode = malloc(sizeof(FileList));
     newNode->file = file;
@@ -11,6 +12,7 @@ static void addFile(FileList** list, CachedFile* file){
     *list = newNode;
 }
 
+//Recursively frees all the nodes from a file list
 static void freeFileList(FileList** fileList){
     if(*fileList != NULL){
         freeFileList(&((*fileList)->next));
@@ -55,19 +57,23 @@ static void removeFileFromList(FileCache* fileCache, FileList** fileList, const 
         return;
     }
     if(strcmp(list->file->filename, filename) == 0){
+        //The file to remove is the head of the list
         *fileList = list->next;
-        list->next = NULL;
         fileCache->current.size -= getFileSize(list->file);
         fileCache->current.fileNumber--;
+        //Free the node by setting next to null and using the function to free an entire list
+        list->next = NULL;
         freeFileList(&list);
         return;
     }
+    //The file to remove is not the head of the list
     while(list->next != NULL){
         if(strcmp(list->next->file->filename, filename) == 0){
             FileList* tmp = list->next->next;
-            list->next->next = NULL;
             fileCache->current.size -= getFileSize(list->next->file);
             fileCache->current.fileNumber--;
+            //Free the node by setting next to null and using the function to free an entire list
+            list->next->next = NULL;
             freeFileList(&(list->next));
             list->next = tmp;
             return;
@@ -85,6 +91,7 @@ bool canFitNewFile(FileCache* fileCache){
 	return fileCache->current.fileNumber < fileCache->max.fileNumber;
 }
 
+//Initializes a new CachedFile and adds it to the FileCache's FileList
 CachedFile* createFile(FileCache* fileCache, const char* filename){
     CachedFile* newFile = initCachedFile(filename);
     if(newFile == NULL){
@@ -103,8 +110,6 @@ bool fileExists(FileCache* fileCache, const char* filename){
 }
 
 void freeCachedFile(CachedFile* file){
-//    pthread_mutex_t* lock = file->lock;
-//    pthread_mutex_lock(lock);
     if(file->contents != NULL) {
         free(file->contents);
         file->contents = NULL;
@@ -117,7 +122,6 @@ void freeCachedFile(CachedFile* file){
     file->lock = NULL;
     free(file);
     file = NULL;
-//    pthread_mutex_unlock(lock);
 }
 
 void freeFileCache(FileCache** fileCache){
@@ -141,6 +145,8 @@ CachedFile* getFile(FileCache* fileCache, const char* filename){
     return NULL;
 }
 
+//Returns the first file found that is locked by the client, or NULL if none is found.
+//Used when a client disconnects to unlock all files locked by it
 CachedFile* getFileLockedByClient(FileCache* fileCache, int clientFd){
     FileList* current = fileCache->files;
     while(current != NULL){
@@ -156,6 +162,9 @@ size_t getFileSize(CachedFile* file){
     return file->size;
 }
 
+//Returns the filename of the next file that has to be evicted according to the caching algorithm selected,
+//or NULL if no file can be evicted according to the policies implemented.
+//A file with filename equal to the argument passed is guaranteed not to be selected by the algorithm.
 const char* getFileToEvict(FileCache* fileCache, const char* fileToExclude){
     FileList* current = fileCache->files;
     switch (fileCache->cacheAlgorithm) {
@@ -195,6 +204,8 @@ const char* getFileToEvict(FileCache* fileCache, const char* fileToExclude){
             char* filename = NULL;
             uint64_t currentMinTimestamp = UINT64_MAX;
             while(current != NULL){
+                //Exclude files that are locked by a client, that have filename equals to filetoexclude, or that have a
+                //last accessed timestamp more recent that the one we have currently selected
                 if(current->file->lockedBy == -1 && strncmp(current->file->filename, fileToExclude, MAX_FILENAME_SIZE) != 0 && current->file->lastAccessed < currentMinTimestamp){
                     currentMinTimestamp = current->file->lastAccessed;
                     filename = current->file->filename;
@@ -225,10 +236,13 @@ FileCache* initFileCache(unsigned int maxFiles, unsigned long maxSize, Compressi
 	return out;
 }
 
+//Reads a cached file. If the file is not compressed, the contents of the buffer will be returned,
+//otherwise the file will be decompressed and then sent. If there's an error while decompressing the file, the buffer will be sent as-is.
 char* readCachedFile(CachedFile* file, char** buffer, size_t* size){
     file->lastAccessed = getTimeStamp();
 	switch(file->compression){
 		case Miniz:{
+            //Attempt decompression
 			*size = file->uncompressedSize;
 			*buffer = malloc(file->uncompressedSize);
 			int decompressionResult = uncompress((unsigned char*)*buffer, size, (const unsigned char*)(file->contents), getFileSize(file));
@@ -246,6 +260,7 @@ char* readCachedFile(CachedFile* file, char** buffer, size_t* size){
 		}
 		case Uncompressed:
 		default:{
+            //The file is not compressed, send the contents of the buffer
 			*size = getFileSize(file);
 			*buffer = malloc(*size);
 			memcpy(*buffer, file->contents, *size);
@@ -258,6 +273,9 @@ void removeFileFromCache(FileCache* fileCache, const char* filename){
 	removeFileFromList(fileCache, &(fileCache->files), filename);
 }
 
+//Stored a buffer in a CachedFile. If the FileCache has been configured to compress the files,
+//then there will be an attempt at compressing the file. If the compression fails, or if the size of the compressed file
+//is equal or higher than that of the original file, the file will be stored non-compressed, for space and performance reasons.
 size_t storeFile(FileCache* fileCache, CachedFile* file, char* contents, size_t size){
     fileCache->current.size -= getFileSize(file);
 	file->lastAccessed = getTimeStamp();
@@ -268,9 +286,9 @@ size_t storeFile(FileCache* fileCache, CachedFile* file, char* contents, size_t 
 			unsigned long compressedSize = compressBound(size);
 			char* compressedBuffer = malloc(compressedSize);
 			int compressionStatus = compress((unsigned char*)compressedBuffer, &compressedSize, (const unsigned char*)contents, size);
-			if(compressionStatus != Z_OK || compressedSize > size){
-				//Error while compressing, or the compressed file is bigger
-				//than the non compressed one. Save the file as uncompressed
+			if(compressionStatus != Z_OK || compressedSize >= size){
+				//Error while compressing, or the compressed file is bigger or the same size
+				//as the non-compressed one. Save the file as non-compressed
 				free(compressedBuffer);
 				fileCache->current.size += size;
 				if(fileCache->current.size > fileCache->maxReached.size){

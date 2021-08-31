@@ -8,6 +8,7 @@
 
 
 
+//Adds a file to a list of open files
 static void addOpenFile(OpenFilesList** list, const char* filename){
     OpenFilesList* newNode = malloc(sizeof(OpenFilesList));
     newNode->filename = malloc(strlen(filename) + 1);
@@ -16,6 +17,7 @@ static void addOpenFile(OpenFilesList** list, const char* filename){
     *list = newNode;
 }
 
+//Recursively frees a list of open files
 static void closeAllFilesFromList(OpenFilesList** list){
     if((*list) != NULL){
         closeAllFilesFromList(&((*list)->next));
@@ -25,6 +27,8 @@ static void closeAllFilesFromList(OpenFilesList** list){
     }
 }
 
+//Gets the list of open files relative to the client with descriptor passed as parameter,
+//or NULL if there is no client with that descriptor.
 static OpenFilesList** getFileListForDescriptor(ClientList* list, int descriptor){
     ClientList* current = list;
     while(current != NULL){
@@ -47,6 +51,7 @@ static bool isFileOpen(OpenFilesList* list, const char* filename){
     return false;
 }
 
+//Removes the file with name passed as parameter from a list of open files
 static void removeOpenFile(OpenFilesList** list, const char* filename){
     OpenFilesList* current = *list;
     if(current == NULL){
@@ -74,6 +79,7 @@ static void removeOpenFile(OpenFilesList** list, const char* filename){
 
 
 
+//Inserts a new client to the tail of the ClientList passed as parameter
 void clientListAdd(ClientList** list, int descriptor){
     ClientList* newNode = malloc(sizeof(ClientList));
     memset(newNode, 0, sizeof(ClientList));
@@ -158,6 +164,7 @@ void closeAllFiles(ClientList* list, int descriptor){
     closeAllFilesFromList(fileList);
 }
 
+//Closes all files for all clients in the ClientList
 void closeFileForEveryone(ClientList* list, const char* filename){
     ClientList* current = list;
     while(current != NULL){
@@ -166,12 +173,14 @@ void closeFileForEveryone(ClientList* list, const char* filename){
     }
 }
 
+//Creates a char buffer from a FCPMessage object
 char* fcpBufferFromMessage(FCPMessage message){
     char* out = malloc(FCP_MESSAGE_LENGTH);
     out = memcpy(out, &message, FCP_MESSAGE_LENGTH);
     return out;
 }
 
+//Creates a FCPMessage object with the parameters specified
 FCPMessage* fcpMakeMessage(FCPOpcode operation, int32_t size, char* filename){
     FCPMessage* message = malloc(FCP_MESSAGE_LENGTH);
     memset(message, 0, FCP_MESSAGE_LENGTH);
@@ -183,12 +192,14 @@ FCPMessage* fcpMakeMessage(FCPOpcode operation, int32_t size, char* filename){
     return message;
 }
 
+//Creates a FCPMessage object from a char buffer
 FCPMessage* fcpMessageFromBuffer(char buffer[FCP_MESSAGE_LENGTH]){
 	FCPMessage* out = malloc(FCP_MESSAGE_LENGTH);
 	memcpy(out, buffer, FCP_MESSAGE_LENGTH);
 	return out;
 }
 
+//Creates a FCPMessage, converts it to a buffer and sends it to the file descriptor specified
 void fcpSend(FCPOpcode operation, int32_t size, char* filename, int fd){
 	FCPMessage* message = fcpMakeMessage(operation, size, filename);
 	char* buffer = fcpBufferFromMessage(*message);
@@ -197,6 +208,7 @@ void fcpSend(FCPOpcode operation, int32_t size, char* filename, int fd){
 	free(buffer);
 }
 
+//Recursively frees a ClientList
 void freeClientList(ClientList** clientList){
 	if(*clientList == NULL){
 		return;

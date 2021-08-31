@@ -62,7 +62,8 @@ int main(int argc, char** argv){
 	bool issuedReadOperation = false;
 	unsigned long timeBetweenRequests = 0;
 	Queue* commandQueue = NULL;
-	
+
+    //Command line arguments
 	while(!finished){
 		opt = getopt(argc, argv, "hf:w:W:D:r:R::d:t:l:u:c:pva:");
 		switch(opt){
@@ -161,7 +162,6 @@ int main(int argc, char** argv){
 						return -1;
 					}
 					if(errno != 0){
-						//TODO: Handle error
 						perror("Error in \n");
 						return -1;
 					}
@@ -182,7 +182,6 @@ int main(int argc, char** argv){
 					return -1;
 				}
 				if(errno != 0){
-					//TODO: Handle error
 					perror("Invalid number passed as time\n");
 					return -1;
 				}
@@ -267,6 +266,7 @@ int main(int argc, char** argv){
 		ClientCommand* currentCommand = (ClientCommand*)queuePop(&commandQueue);
 		switch(currentCommand->op) {
 			case WriteFile:{
+                //Tokenizing the parameter string to get the list of files
 				char* savePtr = NULL;
 				char* token = strtok_r(currentCommand->parameter.stringValue, ",", &savePtr);
 				while(token != NULL) {
@@ -289,6 +289,7 @@ int main(int argc, char** argv){
 				break;
 			}
 			case ReadFile:{
+                //Tokenizing the parameter string to get the list of files
 				char* savePtr = NULL;
 				char* token = strtok_r(currentCommand->parameter.stringValue, ",", &savePtr);
 				while(token != NULL) {
@@ -314,7 +315,7 @@ int main(int argc, char** argv){
 						}else{
 							//Operation successful, save file
 							if(readOperationFolderPath != NULL){
-								char* newFileName = replaceBasename(readOperationFolderPath, token);
+								char* newFileName = replaceDirname(readOperationFolderPath, token);
 								printIfVerbose("Saving file to: %s\n", newFileName);
 								int fileDescriptor = open(newFileName, O_CREAT | O_WRONLY | O_TRUNC, 0644);
 								if(fileDescriptor == -1){
@@ -339,6 +340,7 @@ int main(int argc, char** argv){
 				break;
 			}
 			case LockFile:{
+                //Tokenizing the parameter string to get the list of files
 				char* savePtr = NULL;
 				char* token = strtok_r(currentCommand->parameter.stringValue, ",", &savePtr);
 				while(token != NULL) {
@@ -357,6 +359,7 @@ int main(int argc, char** argv){
 				break;
 			}
 			case UnlockFile:{
+                //Tokenizing the parameter string to get the list of files
 				char* savePtr = NULL;
 				char* token = strtok_r(currentCommand->parameter.stringValue, ",", &savePtr);
 				while(token != NULL) {
@@ -375,6 +378,7 @@ int main(int argc, char** argv){
 				break;
 			}
 			case RemoveFile:{
+                //Tokenizing the parameter string to get the list of files
 				char* savePtr = NULL;
 				char* token = strtok_r(currentCommand->parameter.stringValue, ",", &savePtr);
 				while(token != NULL) {
@@ -404,6 +408,7 @@ int main(int argc, char** argv){
 				break;
 			}
 			case AppendFile:{
+                //Tokenizing the parameter string to get the two files
 				char* savePtr = NULL;
 				char* firstFile = strtok_r(currentCommand->parameter.stringValue, ",", &savePtr);
 				if(firstFile == NULL){
@@ -466,6 +471,7 @@ int main(int argc, char** argv){
 				break;
 			}
 			case WriteFolder:{
+                //Tokenizing the parameter string to get the folder and the n parameter
 				char* savePtr = NULL;
 				char* dirname = strtok_r(currentCommand->parameter.stringValue, ",", &savePtr);
 				if(dirname == NULL){
@@ -502,7 +508,8 @@ int main(int argc, char** argv){
 					}
 				}
 				
-				
+
+                //Using ftw to traverse the directories, to avoid incurring in problems if there are symbolic links
 				if(ftw(currentCommand->parameter.stringValue, clientWriteFile, 15)){
 					if(filesToSend != 1){
 						perror("Error while sending files in folder");
@@ -513,6 +520,7 @@ int main(int argc, char** argv){
 			}
 		}
 		free(currentCommand);
+        //Wait the time specified with the -t option
         ts = doubleToTimespec((double)timeBetweenRequests / (double)1000);
         nanosleep(&ts, NULL);
 	}
@@ -522,6 +530,7 @@ int main(int argc, char** argv){
 	return 0;
 }
 
+//Function passed to ftw
 static int clientWriteFile (const char* fpath, const struct stat* sb, int typeflag){
 	if(filesToSend != 1){
 		if(typeflag == FTW_F){
