@@ -6,14 +6,13 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/stat.h>
 #include <unistd.h>
 
 #include "include/ClientAPI.h"
 #include "include/ion.h"
 #include "include/PathUtils.h"
 #include "include/Queue.h"
-
+#include "include/TimespecUtils.h"
 
 
 typedef enum ClientOperation{
@@ -394,11 +393,14 @@ int main(int argc, char** argv){
 				break;
 			}
 			case ReadNFiles:{
-				if(readNFiles(currentCommand->parameter.intValue, readOperationFolderPath)){
+                int filesRead = readNFiles(currentCommand->parameter.intValue, readOperationFolderPath);
+				if(filesRead == -1){
 					perror("Error while reading N files");
 					finished = true;
 					break;
-				}
+				}else{
+                    printIfVerbose("Read %d files\n", filesRead);
+                }
 				break;
 			}
 			case AppendFile:{
@@ -511,7 +513,8 @@ int main(int argc, char** argv){
 			}
 		}
 		free(currentCommand);
-		usleep(timeBetweenRequests * 1000);
+        ts = doubleToTimespec((double)timeBetweenRequests / (double)1000);
+        nanosleep(&ts, NULL);
 	}
 	
 	closeConnection(socketPath);

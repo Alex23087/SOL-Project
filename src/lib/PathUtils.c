@@ -1,9 +1,8 @@
 #include <libgen.h>
 #include <malloc.h>
-#include <sys/un.h>
+#include <string.h>
 
 #include "../include/ClientAPI.h"
-#include "../include/FileCachingProtocol.h"
 #include "../include/PathUtils.h"
 
 

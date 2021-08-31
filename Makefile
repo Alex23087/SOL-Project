@@ -1,6 +1,6 @@
 CC = gcc
 override CFLAGS += -Wall -pedantic --std=gnu99
-MAKEFLAGS := --jobs=$(shell nproc)
+MAKEFLAGS = --jobs=$(shell nproc)
 .PHONY: all clean cleanall killserver intserver hupserver testlock testhangup test1 test2 test3 cleantestlock cleantesthangup cleantest1 cleantest2 cleantest3 morefiles rmmorefiles stats
 SERVERDEPS = server FileCache FileCachingProtocol ion miniz ParseUtils Queue ServerLib TimespecUtils W2M
 CLIENTDEPS = client ClientAPI FileCachingProtocol ion ParseUtils PathUtils Queue TimespecUtils

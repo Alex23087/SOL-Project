@@ -1,6 +1,7 @@
 #ifndef SOL_PROJECT_TIMESPECUTILS_H
 #define SOL_PROJECT_TIMESPECUTILS_H
 
+#include <stdint.h>
 #include <time.h>
 
 

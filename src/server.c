@@ -3,7 +3,6 @@
 #include <getopt.h>
 #include <pthread.h>
 #include <signal.h>
-#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/socket.h>
@@ -11,9 +10,7 @@
 #include <unistd.h>
 
 #include "include/ClientAPI.h"
-#include "include/defines.h"
 #include "include/FileCache.h"
-#include "include/FileCachingProtocol.h"
 #include "include/ion.h"
 #include "include/ParseUtils.h"
 #include "include/Queue.h"
@@ -88,7 +85,7 @@ static void* signalHandlerThread(void* arg){
 bool serverLockFileL(int workerID, int fdToServe, const char* filename, CachedFile *file, bool sendAck) {
     bool locked = false;
     pthread_mutex_lock_error(file->lock, "Error while locking file");
-    if(file->lockedBy == -1){
+    if(file->lockedBy == -1 || file->lockedBy == fdToServe){
         locked = true;
         file->lockedBy = fdToServe;
     }

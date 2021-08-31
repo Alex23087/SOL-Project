@@ -2,6 +2,7 @@
 #include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/un.h>
@@ -14,6 +15,11 @@
 #include "../include/ParseUtils.h"
 #include "../include/PathUtils.h"
 #include "../include/TimespecUtils.h"
+
+#ifdef _POSIX_C_SOURCE
+//Function prototype copied here since despite the function is POSIX 2008 compliant (according to man 3 realpath), the compiler doesn't recognize it
+extern char *realpath (const char *__restrict __name, char *__restrict __resolved);
+#endif
 
 
 
@@ -319,7 +325,8 @@ int openConnection(const char* sockname, int msec, const struct timespec abstime
 		connectionSucceeded = !connect(clientSocketDescriptor, (struct sockaddr*)&serverAddress, sizeof(serverAddress));
 		if(!connectionSucceeded){
 			if(compareTimes(deadlineTime, endTime) >= 0){
-				usleep(msec * 1e3L);
+                struct timespec ts = doubleToTimespec((double)msec / (double)1000);
+                nanosleep(&ts, NULL);
 			}else{
 				break;
 			}
@@ -497,6 +504,7 @@ int readNFiles(int N, const char* dirname){
     ssize_t bytesRead = readn(activeConnectionFD, fcpBuffer, FCP_MESSAGE_LENGTH);
     FCPMessage* message = fcpMessageFromBuffer(fcpBuffer);
 
+    int filesRead = 0;
     bool finished = false;
     while(bytesRead != 0 && !finished){
         switch(message->op){
@@ -504,6 +512,8 @@ int readNFiles(int N, const char* dirname){
                 //Server will send a file
                 if(receiveAndSaveFileFromServer(message->control, message->filename, dirname)){
                     success = false;
+                }else{
+                    filesRead++;
                 }
                 break;
             }
@@ -535,7 +545,7 @@ int readNFiles(int N, const char* dirname){
     }
 
     free(message);
-    return success ? 0 : -1;
+    return success ? filesRead : -1;
 }
 
 int removeFile(const char* pathname){

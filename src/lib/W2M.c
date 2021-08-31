@@ -1,16 +1,9 @@
-#include "../include/ServerLib.h"
-#include <errno.h>
 #include <fcntl.h>
-#include <getopt.h>
-#include <pthread.h>
-#include <signal.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <sys/socket.h>
 #include <sys/un.h>
-#include <unistd.h>
 
-#include "../include/ClientAPI.h"
 #include "../include/ion.h"
 #include "../include/W2M.h"
 
